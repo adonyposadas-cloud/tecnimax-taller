@@ -27,16 +27,13 @@
 
   <main>
     <div class="welcome-card">
-      <h1>Bienvenido, <span id="user-nombre">Usuario</span></h1>
-      <span class="welcome-rol">ADMINISTRADOR</span>
+      <h1>Bienvenido, <span id="user-nombre">Cargando...</span></h1>
+      <span class="welcome-rol" id="user-rol-badge">—</span>
       <p>Tu código: <strong id="user-codigo">—</strong></p>
       <p style="margin-top: 2rem; color: var(--text-muted);">
-        El panel de administración completo (tablero en vivo, reportes, configuración)
-        se habilitará en la <strong>Fase 3</strong> del desarrollo.
+        El panel de administración completo se habilitará en la <strong>Fase 3</strong>.
       </p>
-      <p style="margin-top: 1rem; font-size: 0.85rem; color: var(--text-dim);">
-        Por ahora puedes cerrar sesión y probar la autenticación.
-      </p>
+      <div id="debug-log" style="margin-top:2rem;padding:1rem;background:rgba(0,0,0,0.3);border-radius:8px;text-align:left;font-family:monospace;font-size:0.8rem;color:#9BE37C;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow:auto;"></div>
     </div>
   </main>
 
@@ -46,23 +43,79 @@
   <script src="../js/utils.js"></script>
   <script src="../js/auth.js"></script>
   <script>
+    // Logger visual para diagnóstico (se elimina después)
+    const debugLog = document.getElementById('debug-log');
+    function dlog(msg, data) {
+      const line = `[${new Date().toISOString().slice(11,19)}] ${msg}` + (data !== undefined ? ' → ' + JSON.stringify(data) : '');
+      console.log(line);
+      if (debugLog) debugLog.textContent += line + '\n';
+    }
+
     (async () => {
-      const profile = await Auth.requireAuth();
-      if (!profile) return;
+      try {
+        dlog('1. Script iniciado');
 
-      // Verificar que sea admin
-      if (profile.rol !== 'admin') {
-        alert('No tienes permisos para esta pantalla.');
-        Auth.logout();
-        return;
+        if (!supabaseClient) {
+          dlog('ERROR: supabaseClient es null');
+          return;
+        }
+        dlog('2. supabaseClient OK');
+
+        const { data: { session }, error: sessErr } = await supabaseClient.auth.getSession();
+        dlog('3. getSession', { tieneSesion: !!session, err: sessErr?.message });
+
+        if (!session) {
+          dlog('ERROR: Sin sesion, redirigiendo a login en 3s');
+          setTimeout(() => window.location.href = '../index.html', 3000);
+          return;
+        }
+        dlog('4. Usuario autenticado', { uid: session.user.id, email: session.user.email });
+
+        const storedProfile = localStorage.getItem('taller-profile');
+        dlog('5. Perfil en localStorage (raw)', storedProfile);
+
+        let profile = null;
+        try { profile = JSON.parse(storedProfile); } catch(e) { dlog('Error JSON.parse', e.message); }
+
+        if (!profile) {
+          dlog('6a. Sin perfil en localStorage, leyendo de Supabase...');
+          const { data, error } = await supabaseClient
+            .from('usuarios')
+            .select('id, codigo, nombre, rol, activo, pin_cambiado')
+            .eq('id', session.user.id)
+            .maybeSingle();
+          dlog('6b. SELECT usuarios', { data, error: error?.message });
+          profile = data;
+        } else {
+          dlog('6. Perfil cargado de localStorage', profile);
+        }
+
+        if (!profile) {
+          dlog('ERROR: No hay perfil disponible despues de todo');
+          return;
+        }
+
+        dlog('7. profile.rol valor', profile.rol);
+        dlog('8. typeof profile.rol', typeof profile.rol);
+        dlog('9. profile.rol === admin ?', profile.rol === 'admin');
+
+        if (profile.rol !== 'admin') {
+          dlog('ERROR: Rol no es admin');
+          return;
+        }
+
+        dlog('10. OK, renderizando pantalla');
+        document.getElementById('user-nombre').textContent = profile.nombre;
+        document.getElementById('user-codigo').textContent = profile.codigo;
+        document.getElementById('user-rol-badge').textContent = 'ADMINISTRADOR';
+
+        document.getElementById('btn-logout').addEventListener('click', () => {
+          Auth.logout();
+        });
+
+      } catch (err) {
+        dlog('EXCEPCION', { msg: err.message, stack: err.stack });
       }
-
-      document.getElementById('user-nombre').textContent = profile.nombre;
-      document.getElementById('user-codigo').textContent = profile.codigo;
-
-      document.getElementById('btn-logout').addEventListener('click', () => {
-        Auth.logout();
-      });
     })();
   </script>
 </body>
