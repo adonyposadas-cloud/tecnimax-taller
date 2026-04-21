@@ -384,6 +384,8 @@ input { outline: none; border: none; }
    ============================================================================ */
 .app-body {
   padding: var(--sp-5);
+  position: relative;
+  z-index: 1;
 }
 
 .app-header {
@@ -393,6 +395,13 @@ input { outline: none; border: none; }
   padding: var(--sp-4) 0;
   border-bottom: 1px solid var(--border);
   margin-bottom: var(--sp-6);
+  position: relative;
+  z-index: 2;
+}
+
+.app-body main {
+  position: relative;
+  z-index: 1;
 }
 
 .app-brand {
