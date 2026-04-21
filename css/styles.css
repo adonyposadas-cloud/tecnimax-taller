@@ -1,0 +1,495 @@
+/* =============================================================================
+   TECNIMAX TALLER — Estilos principales
+   Paleta corporativa azul · Modo oscuro por defecto · Mobile-first
+   ============================================================================= */
+
+:root {
+  /* Paleta principal TECNIMAX */
+  --azul-primario: #1F4E79;
+  --azul-claro:    #2E75B6;
+  --azul-oscuro:   #0F2F4A;
+  --azul-noche:    #071A2C;
+
+  /* Acento TECNIMAX */
+  --amarillo:      #FFC107;
+  --rojo-urgente:  #DC3545;
+  --verde-ok:      #28A745;
+
+  /* Tipografía */
+  --font-display: 'Oswald', 'Impact', sans-serif;
+  --font-body:    'Manrope', system-ui, sans-serif;
+
+  /* Espaciado */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  /* Radios */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+
+  /* Sombras */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 12px 32px rgba(0,0,0,0.5);
+
+  /* Dark mode (default) */
+  --bg:           var(--azul-noche);
+  --bg-card:      rgba(15, 47, 74, 0.85);
+  --bg-input:     rgba(255,255,255,0.06);
+  --bg-input-focus: rgba(255,255,255,0.1);
+
+  --text:         #E8EEF5;
+  --text-muted:   #8DA3BC;
+  --text-dim:     #5B7088;
+
+  --border:       rgba(255,255,255,0.12);
+  --border-focus: var(--azul-claro);
+}
+
+/* Opción de modo claro (quien quiera alternarlo después) */
+[data-theme="light"] {
+  --bg:         #F5F7FA;
+  --bg-card:    #FFFFFF;
+  --bg-input:   #F0F3F7;
+  --bg-input-focus: #FFFFFF;
+  --text:       #1A2332;
+  --text-muted: #5B6B7F;
+  --text-dim:   #9BAABD;
+  --border:     #D6DDE5;
+}
+
+/* ============================================================================
+   RESET
+   ============================================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  min-height: 100vh;
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; border: none; background: none; }
+input { outline: none; border: none; }
+
+/* ============================================================================
+   LOGIN — LAYOUT
+   ============================================================================ */
+.login-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  position: relative;
+  overflow-x: hidden;
+}
+
+.login-container {
+  width: 100%;
+  max-width: 440px;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  padding: var(--sp-4) 0;
+}
+
+/* ============================================================================
+   FONDO DECORATIVO
+   ============================================================================ */
+.bg-decoration {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.bg-gradient {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at top right, rgba(46, 117, 182, 0.25), transparent 50%),
+    radial-gradient(ellipse at bottom left, rgba(255, 193, 7, 0.08), transparent 60%),
+    linear-gradient(180deg, var(--azul-noche) 0%, var(--azul-oscuro) 100%);
+}
+
+.bg-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+}
+
+/* ============================================================================
+   BRAND HEADER
+   ============================================================================ */
+.login-header {
+  text-align: center;
+  animation: fadeInDown 0.6s ease-out;
+}
+
+.brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(2.25rem, 8vw, 3rem);
+  letter-spacing: 0.05em;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  text-transform: uppercase;
+}
+
+.brand-tecnimax {
+  color: var(--text);
+}
+
+.brand-separator {
+  width: 3px;
+  height: 1.6em;
+  background: var(--amarillo);
+  border-radius: 2px;
+}
+
+.brand-taller {
+  color: var(--amarillo);
+  font-weight: 500;
+}
+
+.brand-subtitle {
+  margin-top: var(--sp-3);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+}
+
+/* ============================================================================
+   TARJETA DE LOGIN
+   ============================================================================ */
+.login-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-6) var(--sp-5);
+  box-shadow: var(--shadow-lg);
+  animation: fadeInUp 0.6s ease-out 0.1s backwards;
+}
+
+.login-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.25rem;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  margin-bottom: var(--sp-5);
+  text-align: center;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* ============================================================================
+   CAMPOS
+   ============================================================================ */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.field-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.field-input {
+  background: var(--bg-input);
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  font-size: 1rem;
+  color: var(--text);
+  transition: border-color 0.2s, background 0.2s;
+  width: 100%;
+  min-height: 48px; /* target táctil accesible */
+}
+
+.field-input::placeholder {
+  color: var(--text-dim);
+}
+
+.field-input:focus {
+  border-color: var(--border-focus);
+  background: var(--bg-input-focus);
+}
+
+.field-input:invalid:not(:placeholder-shown) {
+  border-color: var(--rojo-urgente);
+}
+
+/* PIN: letras grandes espaciadas (6 dígitos) */
+.field-input-pin {
+  letter-spacing: 0.35em;
+  text-align: center;
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.field-input-pin::placeholder {
+  letter-spacing: 0.25em;
+}
+
+.field-help {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+/* ============================================================================
+   BOTÓN PRIMARIO
+   ============================================================================ */
+.btn-primary {
+  background: linear-gradient(135deg, var(--azul-claro), var(--azul-primario));
+  color: white;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.05rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 16px 24px;
+  border-radius: var(--r-md);
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  position: relative;
+  transition: transform 0.1s, box-shadow 0.2s;
+  box-shadow: 0 4px 14px rgba(46, 117, 182, 0.35);
+  margin-top: var(--sp-2);
+}
+
+.btn-primary:hover:not(:disabled) {
+  box-shadow: 0 6px 20px rgba(46, 117, 182, 0.5);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-primary.loading .btn-label {
+  opacity: 0.4;
+}
+
+.btn-spinner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.btn-primary.loading .btn-spinner {
+  opacity: 1;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ============================================================================
+   MENSAJE DE ERROR
+   ============================================================================ */
+.error-msg {
+  background: rgba(220, 53, 69, 0.12);
+  border: 1px solid rgba(220, 53, 69, 0.35);
+  color: #FFB5BD;
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md);
+  font-size: 0.9rem;
+  text-align: center;
+  animation: shake 0.4s;
+}
+
+/* ============================================================================
+   FOOTER
+   ============================================================================ */
+.login-footer {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+.footer-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 0.75rem;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: background 0.3s;
+}
+
+.footer-status.online .status-dot {
+  background: var(--verde-ok);
+  box-shadow: 0 0 8px rgba(40, 167, 69, 0.5);
+}
+
+.footer-status.offline .status-dot {
+  background: var(--rojo-urgente);
+}
+
+/* ============================================================================
+   PÁGINAS INTERNAS (stubs admin/jefe/tecnico)
+   ============================================================================ */
+.app-body {
+  padding: var(--sp-5);
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-4) 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--sp-6);
+}
+
+.app-brand {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  font-size: 1.1rem;
+}
+
+.app-brand strong { color: var(--amarillo); }
+
+.btn-logout {
+  background: transparent;
+  color: var(--text-muted);
+  padding: var(--sp-2) var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.btn-logout:hover {
+  color: var(--rojo-urgente);
+  border-color: var(--rojo-urgente);
+}
+
+.welcome-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-6);
+  text-align: center;
+  max-width: 520px;
+  margin: var(--sp-7) auto;
+}
+
+.welcome-card h1 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.75rem;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--sp-3);
+}
+
+.welcome-card p {
+  color: var(--text-muted);
+}
+
+.welcome-rol {
+  display: inline-block;
+  background: var(--azul-claro);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin: var(--sp-3) 0;
+}
+
+/* ============================================================================
+   ANIMACIONES
+   ============================================================================ */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  75% { transform: translateX(6px); }
+}
+
+/* ============================================================================
+   ACCESIBILIDAD
+   ============================================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Focus visible cuando navegan con teclado */
+:focus-visible {
+  outline: 2px solid var(--amarillo);
+  outline-offset: 2px;
+}

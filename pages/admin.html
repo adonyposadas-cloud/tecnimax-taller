@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0F2F4A" />
+  <title>Panel de Admin — TECNIMAX Taller</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="../icons/favicon-32.png" />
+  <link rel="manifest" href="../manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/styles.css" />
+</head>
+<body class="app-body">
+  <div class="bg-decoration" aria-hidden="true">
+    <div class="bg-gradient"></div>
+    <div class="bg-grid"></div>
+  </div>
+
+  <header class="app-header">
+    <div class="app-brand">
+      <strong>TECNIMAX</strong> · Taller · Administración
+    </div>
+    <button id="btn-logout" class="btn-logout">Salir</button>
+  </header>
+
+  <main>
+    <div class="welcome-card">
+      <h1>Bienvenido, <span id="user-nombre">Usuario</span></h1>
+      <span class="welcome-rol">ADMINISTRADOR</span>
+      <p>Tu código: <strong id="user-codigo">—</strong></p>
+      <p style="margin-top: 2rem; color: var(--text-muted);">
+        El panel de administración completo (tablero en vivo, reportes, configuración)
+        se habilitará en la <strong>Fase 3</strong> del desarrollo.
+      </p>
+      <p style="margin-top: 1rem; font-size: 0.85rem; color: var(--text-dim);">
+        Por ahora puedes cerrar sesión y probar la autenticación.
+      </p>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/config.js"></script>
+  <script src="../js/supabase-client.js"></script>
+  <script src="../js/utils.js"></script>
+  <script src="../js/auth.js"></script>
+  <script>
+    (async () => {
+      const profile = await Auth.requireAuth();
+      if (!profile) return;
+
+      // Verificar que sea admin
+      if (profile.rol !== 'admin') {
+        alert('No tienes permisos para esta pantalla.');
+        Auth.logout();
+        return;
+      }
+
+      document.getElementById('user-nombre').textContent = profile.nombre;
+      document.getElementById('user-codigo').textContent = profile.codigo;
+
+      document.getElementById('btn-logout').addEventListener('click', () => {
+        Auth.logout();
+      });
+    })();
+  </script>
+</body>
+</html>

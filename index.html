@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0F2F4A" />
+  <meta name="description" content="TECNIMAX Taller — Sistema de Gestión de Taller para Flota de Taxis" />
+
+  <title>TECNIMAX Taller</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="./icons/favicon-16.png" />
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+
+  <!-- Fonts: display = Oswald (industrial, fuerte), body = Manrope (limpia, moderna) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Estilos -->
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body class="login-body">
+
+  <!-- Fondo decorativo -->
+  <div class="bg-decoration" aria-hidden="true">
+    <div class="bg-gradient"></div>
+    <div class="bg-grid"></div>
+  </div>
+
+  <main class="login-container">
+
+    <!-- Header: solo texto como decidiste -->
+    <header class="login-header">
+      <h1 class="brand">
+        <span class="brand-tecnimax">TECNIMAX</span>
+        <span class="brand-separator"></span>
+        <span class="brand-taller">TALLER</span>
+      </h1>
+      <p class="brand-subtitle">Sistema de Gestión — Flota de Taxis</p>
+    </header>
+
+    <!-- Formulario de login -->
+    <section class="login-card">
+
+      <h2 class="login-title">Ingresa a tu cuenta</h2>
+
+      <form id="login-form" class="login-form" autocomplete="off" novalidate>
+
+        <div class="field">
+          <label for="codigo" class="field-label">Código de usuario</label>
+          <input
+            type="text"
+            id="codigo"
+            name="codigo"
+            class="field-input"
+            placeholder="Ej: A03404"
+            maxlength="6"
+            required
+            autocapitalize="characters"
+            inputmode="text"
+            pattern="^[A-Z][0-9]{5}$"
+            aria-describedby="codigo-help"
+          />
+          <span id="codigo-help" class="field-help">Una letra + 5 dígitos</span>
+        </div>
+
+        <div class="field">
+          <label for="pin" class="field-label">PIN</label>
+          <input
+            type="password"
+            id="pin"
+            name="pin"
+            class="field-input field-input-pin"
+            placeholder="••••••"
+            maxlength="6"
+            minlength="6"
+            required
+            inputmode="numeric"
+            pattern="[0-9]{6}"
+            autocomplete="current-password"
+          />
+          <span class="field-help">6 dígitos numéricos</span>
+        </div>
+
+        <!-- Mensaje de error -->
+        <div id="error-msg" class="error-msg" role="alert" aria-live="polite" hidden></div>
+
+        <!-- Botón de ingreso -->
+        <button type="submit" id="login-btn" class="btn-primary">
+          <span class="btn-label">Ingresar</span>
+          <span class="btn-spinner" aria-hidden="true"></span>
+        </button>
+
+      </form>
+
+    </section>
+
+    <!-- Footer -->
+    <footer class="login-footer">
+      <p>TECNIMAX © 2026 · v2.0</p>
+      <p class="footer-status" id="connection-status">
+        <span class="status-dot"></span>
+        <span class="status-text">Conectando...</span>
+      </p>
+    </footer>
+
+  </main>
+
+  <!-- SDK de Supabase -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Nuestros scripts (orden importa) -->
+  <script src="./js/config.js"></script>
+  <script src="./js/supabase-client.js"></script>
+  <script src="./js/utils.js"></script>
+  <script src="./js/auth.js"></script>
+  <script src="./js/router.js"></script>
+
+  <!-- Registro del Service Worker -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./service-worker.js')
+          .then(reg => console.log('[SW] Registrado:', reg.scope))
+          .catch(err => console.warn('[SW] Error:', err));
+      });
+    }
+  </script>
+
+</body>
+</html>

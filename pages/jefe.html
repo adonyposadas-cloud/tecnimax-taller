@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0F2F4A" />
+  <title>Jefe de Pista — TECNIMAX Taller</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="../icons/favicon-32.png" />
+  <link rel="manifest" href="../manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/styles.css" />
+</head>
+<body class="app-body">
+  <div class="bg-decoration" aria-hidden="true">
+    <div class="bg-gradient"></div>
+    <div class="bg-grid"></div>
+  </div>
+
+  <header class="app-header">
+    <div class="app-brand">
+      <strong>TECNIMAX</strong> · Taller · Jefe de Pista
+    </div>
+    <button id="btn-logout" class="btn-logout">Salir</button>
+  </header>
+
+  <main>
+    <div class="welcome-card">
+      <h1>Bienvenido, <span id="user-nombre">Usuario</span></h1>
+      <span class="welcome-rol">JEFE DE PISTA</span>
+      <p>Tu código: <strong id="user-codigo">—</strong></p>
+      <p style="margin-top: 2rem; color: var(--text-muted);">
+        El módulo de creación de órdenes y el tablero general se habilitarán
+        en la <strong>Fase 3</strong>.
+      </p>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/config.js"></script>
+  <script src="../js/supabase-client.js"></script>
+  <script src="../js/utils.js"></script>
+  <script src="../js/auth.js"></script>
+  <script>
+    (async () => {
+      const profile = await Auth.requireAuth();
+      if (!profile) return;
+      if (profile.rol !== 'jefe_pista') {
+        alert('No tienes permisos para esta pantalla.');
+        Auth.logout();
+        return;
+      }
+      document.getElementById('user-nombre').textContent = profile.nombre;
+      document.getElementById('user-codigo').textContent = profile.codigo;
+      document.getElementById('btn-logout').addEventListener('click', () => Auth.logout());
+    })();
+  </script>
+</body>
+</html>
