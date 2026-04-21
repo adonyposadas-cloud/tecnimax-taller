@@ -121,8 +121,19 @@ const Auth = {
     localStorage.removeItem('taller-login-at');
     localStorage.removeItem('taller-sesion-id');
 
-    // Redirigir a login
-    window.location.href = './index.html';
+    // Redirigir a login (ruta absoluta para funcionar desde cualquier pagina)
+    window.location.href = Auth.loginUrl();
+  },
+
+  /** Devuelve la URL absoluta del login, considerando que podemos estar en /pages/ */
+  loginUrl() {
+    // Detectar si estamos dentro de /pages/ o no
+    const path = window.location.pathname;
+    if (path.includes('/pages/')) {
+      // Subir un nivel
+      return '../index.html';
+    }
+    return './index.html';
   },
 
   /** Obtiene el perfil del usuario desde localStorage (sin hit a red) */
@@ -148,13 +159,13 @@ const Auth = {
   /** Verifica sesión activa contra Supabase (llamado desde páginas internas) */
   async requireAuth() {
     if (!supabaseClient) {
-      window.location.href = './index.html';
+      window.location.href = this.loginUrl();
       return null;
     }
 
     const { data: { session } } = await supabaseClient.auth.getSession();
     if (!session) {
-      window.location.href = './index.html';
+      window.location.href = this.loginUrl();
       return null;
     }
 
