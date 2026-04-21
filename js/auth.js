@@ -60,28 +60,38 @@ const Auth = {
       return { ok: false, error: 'Tu cuenta está desactivada. Contacta al administrador.' };
     }
 
-    // 3. Registrar sesión en tabla `sesiones`
+    // 3. Guardar perfil en localStorage INMEDIATAMENTE (antes de cualquier otra operación)
+    //    Esto garantiza que aunque fallen pasos secundarios, el login se considera exitoso.
     try {
-      const { data: sesionData } = await supabaseClient
+      localStorage.setItem('taller-profile', JSON.stringify(profile));
+      localStorage.setItem('taller-login-at', Date.now().toString());
+      Utils.log('Perfil guardado en localStorage:', profile);
+    } catch (e) {
+      Utils.log('Error crítico al guardar en localStorage:', e);
+      return { ok: false, error: 'No se pudo guardar la sesión local.' };
+    }
+
+    // 4. Registrar sesión en tabla `sesiones` (operación no crítica, errores se silencian)
+    try {
+      const { data: sesionData, error: sesErr } = await supabaseClient
         .from('sesiones')
         .insert({
           usuario_id: userId,
           dispositivo: Utils.getDeviceSummary(),
-          ip: null, // Supabase lo puede registrar por trigger si se desea; el cliente no lo conoce con fiabilidad
+          ip: null,
         })
         .select('id')
-        .single();
+        .maybeSingle();
 
-      if (sesionData?.id) {
+      if (sesErr) {
+        Utils.log('No se pudo registrar sesión (no crítico):', sesErr.message);
+      } else if (sesionData?.id) {
         localStorage.setItem('taller-sesion-id', String(sesionData.id));
+        Utils.log('Sesión registrada con ID:', sesionData.id);
       }
     } catch (e) {
-      Utils.log('No se pudo registrar sesión (no crítico):', e);
+      Utils.log('Excepción al registrar sesión (no crítico):', e);
     }
-
-    // 4. Guardar perfil localmente para uso en las pantallas
-    localStorage.setItem('taller-profile', JSON.stringify(profile));
-    localStorage.setItem('taller-login-at', Date.now().toString());
 
     return { ok: true, profile };
   },
