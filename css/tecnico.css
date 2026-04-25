@@ -1,0 +1,229 @@
+/* =============================================================================
+   TECNIMAX TALLER — Estilos del Técnico
+   Mobile-first. Lista de vehículos en taller.
+   ============================================================================= */
+
+.app-mobile {
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.tecnico-main {
+  padding: 0 var(--sp-3);
+  position: relative;
+  z-index: 1;
+}
+
+/* ============================================================================
+   BANNER TRABAJO ACTIVO
+   ============================================================================ */
+.banner-activo {
+  background: linear-gradient(135deg, rgba(46, 117, 182, 0.18), rgba(31, 78, 121, 0.18));
+  border: 1px solid rgba(46, 117, 182, 0.4);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.banner-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--azul-claro);
+  margin-bottom: 6px;
+}
+
+.banner-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.banner-info { flex: 1; min-width: 0; }
+
+.banner-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1rem;
+  color: var(--azul-claro);
+}
+
+.banner-sub {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.banner-time { text-align: right; }
+
+.banner-cronos {
+  font-family: var(--font-mono);
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--azul-claro);
+  letter-spacing: 0.05em;
+}
+
+.banner-status {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* ============================================================================
+   BUSCADOR
+   ============================================================================ */
+.search-section {
+  margin-bottom: var(--sp-3);
+}
+
+.search-input {
+  width: 100%;
+  font-size: 0.95rem;
+}
+
+/* ============================================================================
+   LISTA DE VEHÍCULOS
+   ============================================================================ */
+.vehiculos-section {
+  margin-bottom: var(--sp-5);
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-3);
+  padding: 0 var(--sp-2);
+}
+
+.section-count {
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.vehiculos-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.vehiculo-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.vehiculo-card:hover,
+.vehiculo-card:active {
+  background: rgba(255,255,255,0.04);
+  border-color: var(--text-muted);
+}
+
+.vehiculo-card.card-urgente {
+  background: rgba(220, 53, 69, 0.08);
+  border-left: 3px solid var(--rojo-urgente);
+}
+
+.vehiculo-card.card-mio {
+  background: rgba(46, 117, 182, 0.12);
+  border-color: rgba(46, 117, 182, 0.4);
+}
+
+.card-row-1 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.placa-card {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.card-meta {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.card-servicios {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-status {
+  font-size: 0.75rem;
+  margin-top: 6px;
+  font-weight: 500;
+}
+
+.card-status.status-mio { color: var(--azul-claro); }
+.card-status.status-libre { color: var(--verde-ok); }
+.card-status.status-asignado { color: var(--text-dim); }
+
+/* Badges chiquitos para urgencia */
+.badge-mini {
+  font-size: 0.65rem;
+  padding: 2px 7px;
+  border-radius: 8px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.badge-mini.badge-urgente {
+  background: rgba(220, 53, 69, 0.18);
+  color: var(--rojo-urgente);
+}
+
+.badge-mini.badge-normal {
+  background: rgba(255,255,255,0.06);
+  color: var(--text-muted);
+}
+
+/* ============================================================================
+   EMPTY STATE
+   ============================================================================ */
+.empty-state {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-6) var(--sp-3);
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* ============================================================================
+   RESPONSIVE - desktop expanded
+   ============================================================================ */
+@media (min-width: 481px) {
+  .vehiculos-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--sp-3);
+  }
+}
