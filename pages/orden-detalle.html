@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0F2F4A" />
+  <title>Detalle de orden — TECNIMAX Taller</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="../icons/favicon-32.png" />
+  <link rel="manifest" href="../manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/styles.css" />
+  <link rel="stylesheet" href="../css/orden-detalle.css" />
+</head>
+<body class="app-body">
+  <div class="bg-decoration" aria-hidden="true">
+    <div class="bg-gradient"></div>
+    <div class="bg-grid"></div>
+  </div>
+
+  <header class="app-header">
+    <button class="btn-back" id="btn-back">← Volver</button>
+    <div class="app-brand-mini" id="orden-titulo">Cargando...</div>
+    <button id="btn-logout" class="btn-logout">Salir</button>
+  </header>
+
+  <main class="detalle-main">
+
+    <!-- Loading -->
+    <div id="loading" class="loading-state">
+      <p>Cargando orden...</p>
+    </div>
+
+    <!-- Error -->
+    <div id="error-state" class="error-state" hidden>
+      <p id="error-msg-text">Orden no encontrada.</p>
+      <button class="btn-secondary" onclick="history.back()">Volver</button>
+    </div>
+
+    <!-- Contenido (oculto hasta cargar) -->
+    <div id="orden-content" hidden>
+
+      <!-- Tarjeta principal: vehículo + estado -->
+      <section class="card">
+        <div class="card-header">
+          <div class="vehiculo-info">
+            <div class="placa-grande" id="placa-grande">—</div>
+            <div class="vehiculo-meta" id="vehiculo-meta">—</div>
+          </div>
+          <div class="orden-meta">
+            <span class="badge" id="badge-prioridad">—</span>
+            <span class="badge" id="badge-estado">—</span>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <div class="info-grid">
+            <div class="info-item">
+              <div class="info-label">N° Orden</div>
+              <div class="info-value" id="num-orden">—</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">KM ingreso</div>
+              <div class="info-value" id="km-ingreso">—</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Creada</div>
+              <div class="info-value" id="creada-en">—</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Por</div>
+              <div class="info-value" id="creada-por">—</div>
+            </div>
+          </div>
+
+          <div class="info-block">
+            <div class="info-label">Motivo</div>
+            <div class="info-text" id="motivo">—</div>
+          </div>
+
+          <div class="info-block" id="problema-block">
+            <div class="info-label">Problema reportado</div>
+            <div class="info-text" id="problema">—</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Servicios -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="section-title-h2">Servicios a realizar</h2>
+          <span class="servicios-progress" id="servicios-progress">0/0</span>
+        </div>
+
+        <div id="servicios-list" class="servicios-list">
+          <!-- Se llena dinámicamente -->
+        </div>
+      </section>
+
+      <!-- Aviso para Fase 3b-2 -->
+      <section class="card card-soft">
+        <div class="info-block" style="text-align: center;">
+          <div class="info-text" style="color: var(--text-muted);">
+            Los botones <strong>EMPEZAR</strong>, <strong>PAUSAR</strong> y <strong>TERMINAR</strong>
+            se habilitarán en la próxima entrega.
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/config.js"></script>
+  <script src="../js/supabase-client.js"></script>
+  <script src="../js/utils.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/orden-detalle.js"></script>
+</body>
+</html>
