@@ -1,296 +1,275 @@
-/* =============================================================================
-   TECNIMAX TALLER — Estilos del Detalle de Orden
-   Pantalla compartida entre jefe y técnico (modo lectura por ahora)
-   ============================================================================= */
+/**
+ * orden-detalle.js — Pantalla de detalle de una orden (Fase 3b-1)
+ *
+ * Funciones:
+ *  - Leer ?orden=OT-XXXX de la URL
+ *  - Cargar todos los datos de la orden + vehículo + servicios + creador
+ *  - Render según rol (lectura para todos por ahora)
+ *  - Botón Volver respeta el rol del usuario
+ *  - Realtime: si la orden cambia, actualiza
+ *
+ * Lo que NO hace todavía (Fase 3b-2):
+ *  - Botones EMPEZAR/PAUSAR/TERMINAR
+ *  - Cronómetros vivos por servicio
+ *  - Edición de orden
+ */
 
-.detalle-main {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 0 var(--sp-3);
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-}
+const OrdenDetalle = {
 
-.btn-back {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  padding: 6px 12px;
-  border-radius: var(--r-sm);
-  cursor: pointer;
-}
+  state: {
+    profile: null,
+    numOrden: null,
+    orden: null,
+    vehiculo: null,
+    servicios: [],
+    serviciosCatalogo: [],
+    creador: null,
+    realtimeChannel: null,
+  },
 
-.btn-back:hover {
-  color: var(--text);
-  border-color: var(--text-muted);
-}
+  // ==================== INIT ====================
+  async init() {
+    Utils.log('Iniciando detalle de orden...');
 
-.app-brand-mini {
-  flex: 1;
-  text-align: center;
-  font-family: var(--font-display);
-  font-size: 1rem;
-  font-weight: 500;
-  color: var(--text);
-  letter-spacing: 0.04em;
-  margin: 0 var(--sp-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+    const profile = await Auth.requireAuth();
+    if (!profile) return;
 
-/* ============================================================================
-   STATES
-   ============================================================================ */
-.loading-state,
-.error-state {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  padding: var(--sp-6);
-  text-align: center;
-  color: var(--text-muted);
-}
+    this.state.profile = profile;
 
-.error-state button {
-  margin-top: var(--sp-3);
-}
+    // Leer ?orden= de la URL
+    const params = new URLSearchParams(window.location.search);
+    const num = params.get('orden');
 
-/* ============================================================================
-   TARJETAS
-   ============================================================================ */
-.card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  overflow: hidden;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
+    if (!num) {
+      this.mostrarError('No se especificó el número de orden.');
+      return;
+    }
 
-.card-soft {
-  background: rgba(255,255,255,0.02);
-}
+    this.state.numOrden = num;
 
-.card-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  padding: var(--sp-4);
-  border-bottom: 1px solid var(--border);
-}
+    document.getElementById('btn-logout').addEventListener('click', () => Auth.logout());
+    document.getElementById('btn-back').addEventListener('click', () => this.volver());
 
-.card-body {
-  padding: var(--sp-4);
-}
+    await this.cargarCatalogo();
+    await this.cargarOrden();
+    this.activarRealtime();
+  },
 
-/* Vehículo */
-.vehiculo-info { flex: 1; min-width: 0; }
+  // ==================== VOLVER ====================
+  volver() {
+    const rol = this.state.profile.rol;
+    if (rol === 'jefe_pista') {
+      window.location.href = 'jefe.html';
+    } else if (rol === 'tecnico') {
+      window.location.href = 'tecnico.html';
+    } else if (rol === 'admin') {
+      window.location.href = 'admin.html';
+    } else {
+      history.back();
+    }
+  },
 
-.placa-grande {
-  font-family: var(--font-mono);
-  font-size: 1.4rem;
-  font-weight: 600;
-  color: var(--text);
-  letter-spacing: 0.04em;
-}
+  // ==================== CATÁLOGO ====================
+  async cargarCatalogo() {
+    try {
+      const { data, error } = await supabaseClient
+        .from('catalogo_servicios')
+        .select('id, nombre, categoria_id, tiempo_promedio_min')
+        .eq('activo', true);
+      if (error) throw error;
+      this.state.serviciosCatalogo = data || [];
+    } catch (err) {
+      Utils.log('Error cargando catálogo:', err);
+    }
+  },
 
-.vehiculo-meta {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  margin-top: 3px;
-}
+  // ==================== ORDEN ====================
+  async cargarOrden() {
+    try {
+      const { data, error } = await supabaseClient
+        .from('ordenes')
+        .select(`
+          num_orden, placa, prioridad, estado, motivo, problema, km_ingreso,
+          creada_en, cerrada_en, creada_por,
+          vehiculos ( marca, modelo, anio, km_gps_actual ),
+          servicios_orden ( id, servicio_id, estado, tecnico_id, observacion )
+        `)
+        .eq('num_orden', this.state.numOrden)
+        .maybeSingle();
 
-.orden-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  align-items: flex-end;
-}
+      if (error) throw error;
 
-.badge {
-  font-size: 0.7rem;
-  padding: 3px 10px;
-  border-radius: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
+      if (!data) {
+        this.mostrarError(`La orden ${this.state.numOrden} no existe o fue eliminada.`);
+        return;
+      }
 
-.badge.badge-urgente {
-  background: rgba(220, 53, 69, 0.18);
-  color: var(--rojo-urgente);
-}
+      this.state.orden = data;
+      this.state.vehiculo = data.vehiculos;
+      this.state.servicios = data.servicios_orden || [];
 
-.badge.badge-normal {
-  background: rgba(255,255,255,0.06);
-  color: var(--text-muted);
-}
+      // Cargar nombre del creador
+      if (data.creada_por) {
+        const { data: u } = await supabaseClient
+          .from('usuarios')
+          .select('nombre, codigo')
+          .eq('id', data.creada_por)
+          .maybeSingle();
+        this.state.creador = u;
+      }
 
-.badge.badge-abierta {
-  background: rgba(255, 193, 7, 0.16);
-  color: var(--amarillo);
-}
+      this.render();
+    } catch (err) {
+      Utils.log('Error cargando orden:', err);
+      this.mostrarError('No se pudo cargar la orden. ' + (err.message || ''));
+    }
+  },
 
-.badge.badge-en-progreso {
-  background: rgba(46, 117, 182, 0.18);
-  color: var(--azul-claro);
-}
+  // ==================== RENDER ====================
+  render() {
+    const o = this.state.orden;
+    const v = this.state.vehiculo || {};
 
-.badge.badge-completada {
-  background: rgba(40, 167, 69, 0.18);
-  color: var(--verde-ok);
-}
+    document.getElementById('loading').hidden = true;
+    document.getElementById('orden-content').hidden = false;
 
-/* Info grid */
-.info-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--sp-3);
-  margin-bottom: var(--sp-4);
-}
+    document.getElementById('orden-titulo').textContent = `${o.placa} · ${o.num_orden}`;
 
-.info-item { min-width: 0; }
+    // Tarjeta vehículo
+    document.getElementById('placa-grande').textContent = o.placa;
+    const vTexto = `${v.marca || '—'} ${v.modelo || ''}${v.anio ? ' ' + v.anio : ''}`.trim();
+    document.getElementById('vehiculo-meta').textContent = vTexto;
 
-.info-label {
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  margin-bottom: 2px;
-}
+    // Badges
+    const badgePrio = document.getElementById('badge-prioridad');
+    badgePrio.textContent = o.prioridad === 'urgente' ? 'Urgente' : 'Normal';
+    badgePrio.className = 'badge ' + (o.prioridad === 'urgente' ? 'badge-urgente' : 'badge-normal');
 
-.info-value {
-  font-size: 0.9rem;
-  color: var(--text);
-  word-wrap: break-word;
-}
+    const badgeEst = document.getElementById('badge-estado');
+    if (o.estado === 'completada') {
+      badgeEst.textContent = 'Completada';
+      badgeEst.className = 'badge badge-completada';
+    } else if (o.estado === 'en_progreso') {
+      badgeEst.textContent = 'En proceso';
+      badgeEst.className = 'badge badge-en-progreso';
+    } else {
+      badgeEst.textContent = 'Abierta';
+      badgeEst.className = 'badge badge-abierta';
+    }
 
-.info-block {
-  margin-bottom: var(--sp-3);
-}
+    // Info grid
+    document.getElementById('num-orden').textContent = o.num_orden;
+    document.getElementById('km-ingreso').textContent = o.km_ingreso ? Number(o.km_ingreso).toLocaleString('es-HN') : '—';
+    document.getElementById('creada-en').textContent = this.formatearFecha(o.creada_en);
+    document.getElementById('creada-por').textContent = this.state.creador
+      ? `${this.state.creador.nombre} (${this.state.creador.codigo})`
+      : '—';
 
-.info-block:last-child { margin-bottom: 0; }
+    // Bloques de texto
+    document.getElementById('motivo').textContent = o.motivo || '—';
+    if (o.problema) {
+      document.getElementById('problema').textContent = o.problema;
+      document.getElementById('problema-block').hidden = false;
+    } else {
+      document.getElementById('problema-block').hidden = true;
+    }
 
-.info-text {
-  font-size: 0.9rem;
-  color: var(--text);
-  line-height: 1.5;
-}
+    // Servicios
+    this.renderServicios();
+  },
 
-/* ============================================================================
-   SERVICIOS
-   ============================================================================ */
-.section-title-h2 {
-  font-family: var(--font-display);
-  font-size: 1rem;
-  font-weight: 500;
-  margin: 0;
-  letter-spacing: 0.02em;
-}
+  renderServicios() {
+    const total = this.state.servicios.length;
+    const completados = this.state.servicios.filter(s => s.estado === 'completado').length;
 
-.servicios-progress {
-  background: rgba(255,255,255,0.08);
-  color: var(--text);
-  padding: 2px 10px;
-  border-radius: 10px;
-  font-size: 0.78rem;
-  font-weight: 600;
-}
+    document.getElementById('servicios-progress').textContent = `${completados}/${total}`;
 
-.servicios-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  background: var(--border);
-}
+    const cont = document.getElementById('servicios-list');
 
-.servicio-row {
-  background: var(--bg-card);
-  padding: var(--sp-3) var(--sp-4);
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-}
+    if (total === 0) {
+      cont.innerHTML = '<div class="empty-state"><p>Sin servicios asignados.</p></div>';
+      return;
+    }
 
-.servicio-row:first-child { border-top: 1px solid var(--border); }
+    cont.innerHTML = this.state.servicios.map(s => this.renderServicio(s)).join('');
+  },
 
-.servicio-icono {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.75rem;
-  font-weight: 600;
-  flex-shrink: 0;
-}
+  renderServicio(s) {
+    const cat = this.state.serviciosCatalogo.find(c => c.id === s.servicio_id);
+    const nombre = cat?.nombre || 'Servicio';
+    const tiempoBase = cat?.tiempo_promedio_min || null;
 
-.servicio-icono.estado-pendiente {
-  background: rgba(255,255,255,0.06);
-  color: var(--text-muted);
-}
+    let icono, txtEstado, claseEstado;
+    switch (s.estado) {
+      case 'completado':
+        icono = '✓'; txtEstado = 'Completado'; claseEstado = 'completado';
+        break;
+      case 'en_progreso':
+        icono = '▶'; txtEstado = 'En curso'; claseEstado = 'en-progreso';
+        break;
+      case 'pausado':
+        icono = '‖'; txtEstado = 'Pausado'; claseEstado = 'pausado';
+        break;
+      default:
+        icono = '○'; txtEstado = 'Pendiente'; claseEstado = 'pendiente';
+    }
 
-.servicio-icono.estado-en-progreso {
-  background: rgba(46, 117, 182, 0.2);
-  color: var(--azul-claro);
-}
+    const meta = tiempoBase ? `Mediana: ${tiempoBase} min` : 'Sin datos de tiempo';
 
-.servicio-icono.estado-pausado {
-  background: rgba(255, 193, 7, 0.18);
-  color: var(--amarillo);
-}
+    return `
+      <div class="servicio-row">
+        <div class="servicio-icono estado-${claseEstado}">${icono}</div>
+        <div class="servicio-detalle">
+          <div class="servicio-nombre-d">${Utils.escapeHtml(nombre)}</div>
+          <div class="servicio-meta-d">${meta}</div>
+        </div>
+        <div class="servicio-estado-text txt-${claseEstado}">${txtEstado}</div>
+      </div>
+    `;
+  },
 
-.servicio-icono.estado-completado {
-  background: rgba(40, 167, 69, 0.2);
-  color: var(--verde-ok);
-}
+  formatearFecha(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+  },
 
-.servicio-detalle { flex: 1; min-width: 0; }
+  mostrarError(msg) {
+    document.getElementById('loading').hidden = true;
+    document.getElementById('orden-content').hidden = true;
+    document.getElementById('error-state').hidden = false;
+    document.getElementById('error-msg-text').textContent = msg;
+  },
 
-.servicio-nombre-d {
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: var(--text);
-}
+  // ==================== REALTIME ====================
+  activarRealtime() {
+    if (this.state.realtimeChannel) return;
 
-.servicio-meta-d {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  margin-top: 2px;
-}
+    this.state.realtimeChannel = supabaseClient
+      .channel('orden-detalle-' + this.state.numOrden)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ordenes', filter: `num_orden=eq.${this.state.numOrden}` }, () => {
+        Utils.log('Realtime: cambió la orden');
+        this.cargarOrden();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'servicios_orden' }, () => {
+        Utils.log('Realtime: cambió un servicio');
+        this.cargarOrden();
+      })
+      .subscribe();
 
-.servicio-estado-text {
-  font-size: 0.75rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
+    Utils.log('Realtime activado para', this.state.numOrden);
+  },
+};
 
-.servicio-estado-text.txt-pendiente { color: var(--text-muted); }
-.servicio-estado-text.txt-en-progreso { color: var(--azul-claro); }
-.servicio-estado-text.txt-pausado { color: var(--amarillo); }
-.servicio-estado-text.txt-completado { color: var(--verde-ok); }
-
-/* ============================================================================
-   RESPONSIVE
-   ============================================================================ */
-@media (max-width: 600px) {
-  .info-grid {
-    grid-template-columns: 1fr 1fr;
-    gap: var(--sp-2);
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof supabaseClient === 'undefined' || !supabaseClient) {
+    console.error('Supabase no inicializado');
+    return;
   }
-  .placa-grande { font-size: 1.2rem; }
-  .card-header { padding: var(--sp-3); flex-wrap: wrap; }
-  .card-body { padding: var(--sp-3); }
-  .servicio-row { padding: var(--sp-3); }
-  .app-brand-mini { font-size: 0.85rem; }
-}
+  OrdenDetalle.init();
+});
