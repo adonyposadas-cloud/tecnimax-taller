@@ -7,22 +7,27 @@
  *  - Invalidación por versión: al subir cambios, incrementa CACHE_VERSION.
  */
 
-const CACHE_VERSION = 'tecnimax-taller-v1.1.1';
+const CACHE_VERSION = 'tecnimax-taller-v1.2.0';
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.json',
   './css/styles.css',
   './css/jefe.css',
+  './css/tecnico.css',
+  './css/orden-detalle.css',
   './js/config.js',
   './js/supabase-client.js',
   './js/utils.js',
   './js/auth.js',
   './js/router.js',
   './js/jefe.js',
+  './js/tecnico.js',
+  './js/orden-detalle.js',
   './pages/admin.html',
   './pages/jefe.html',
   './pages/tecnico.html',
+  './pages/orden-detalle.html',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',
