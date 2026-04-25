@@ -11,6 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../css/styles.css" />
+  <link rel="stylesheet" href="../css/jefe.css" />
 </head>
 <body class="app-body">
   <div class="bg-decoration" aria-hidden="true">
@@ -20,41 +21,132 @@
 
   <header class="app-header">
     <div class="app-brand">
-      <strong>TECNIMAX</strong> · Taller · Jefe de Pista
+      <strong>TECNIMAX</strong> · Taller · <span id="user-nombre-header">Jefe de Pista</span>
     </div>
     <button id="btn-logout" class="btn-logout">Salir</button>
   </header>
 
-  <main>
-    <div class="welcome-card">
-      <h1>Bienvenido, <span id="user-nombre">Usuario</span></h1>
-      <span class="welcome-rol">JEFE DE PISTA</span>
-      <p>Tu código: <strong id="user-codigo">—</strong></p>
-      <p style="margin-top: 2rem; color: var(--text-muted);">
-        El módulo de creación de órdenes y el tablero general se habilitarán
-        en la <strong>Fase 3</strong>.
-      </p>
+  <section class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-label">En taller</div>
+      <div class="kpi-value" id="kpi-en-taller">—</div>
     </div>
-  </main>
+    <div class="kpi-card">
+      <div class="kpi-label">Ingresos hoy</div>
+      <div class="kpi-value" id="kpi-ingresos-hoy">—</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">En proceso</div>
+      <div class="kpi-value kpi-info" id="kpi-en-proceso">—</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Completadas hoy</div>
+      <div class="kpi-value kpi-success" id="kpi-completadas-hoy">—</div>
+    </div>
+  </section>
+
+  <section class="actions-bar">
+    <div class="tabs">
+      <button class="tab tab-active" data-tab="activas">Activas <span id="count-activas">0</span></button>
+      <button class="tab" data-tab="completadas">Completadas</button>
+      <button class="tab" data-tab="todas">Todas</button>
+    </div>
+    <button id="btn-nueva-orden" class="btn-primary-action">+ Nueva orden</button>
+  </section>
+
+  <section class="orders-table">
+    <div class="orders-header">
+      <div class="col-orden">Orden</div>
+      <div class="col-placa">Placa</div>
+      <div class="col-servicios">Servicios</div>
+      <div class="col-progreso">Progreso</div>
+      <div class="col-estado">Estado</div>
+    </div>
+    <div id="orders-list">
+      <div class="empty-state" id="empty-state">
+        <p>Sin órdenes activas todavía.</p>
+        <p style="color: var(--text-dim); font-size: 0.85rem; margin-top: 0.5rem;">Presiona <strong>+ Nueva orden</strong> para crear la primera.</p>
+      </div>
+    </div>
+  </section>
+
+  <div id="modal-nueva-orden" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+      <header class="modal-header">
+        <button class="modal-close" id="modal-close-btn">←</button>
+        <h2 class="modal-title">Nueva orden de trabajo</h2>
+        <span class="modal-status">Borrador</span>
+      </header>
+
+      <form id="form-nueva-orden">
+
+        <fieldset class="form-section">
+          <legend>Vehículo</legend>
+          <div class="form-grid-3">
+            <div class="field">
+              <label for="placa">Placa</label>
+              <input type="text" id="placa" class="field-input field-mono" required autocomplete="off" autocapitalize="characters" placeholder="Ej: TEST-001" />
+              <span class="field-help" id="placa-hint">Digita la placa</span>
+            </div>
+            <div class="field">
+              <label for="vehiculo-info">Marca y modelo</label>
+              <input type="text" id="vehiculo-info" class="field-input field-disabled" disabled placeholder="—" />
+            </div>
+            <div class="field">
+              <label for="km-ingreso">KM ingreso</label>
+              <input type="number" id="km-ingreso" class="field-input" required min="0" placeholder="0" />
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <div class="section-header">
+            <legend>Detalles</legend>
+            <div class="prioridad-toggle">
+              <button type="button" class="prio-btn prio-active" data-prio="normal">Normal</button>
+              <button type="button" class="prio-btn" data-prio="urgente">Urgente</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="motivo">Motivo de ingreso</label>
+            <input type="text" id="motivo" class="field-input" required placeholder="Ej: Mantenimiento + ruido en frenos" />
+          </div>
+          <div class="field">
+            <label for="problema">Problema reportado</label>
+            <textarea id="problema" class="field-input field-textarea" placeholder="Descripción del problema según el conductor"></textarea>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <div class="section-header">
+            <legend>Servicios a realizar</legend>
+            <span class="servicios-counter" id="servicios-counter">0 seleccionados</span>
+          </div>
+
+          <div class="categorias-chips" id="categorias-chips"></div>
+
+          <div class="servicios-grid" id="servicios-grid"></div>
+        </fieldset>
+
+        <div id="form-error" class="error-msg" hidden></div>
+
+        <footer class="modal-footer">
+          <span class="footer-info" id="tiempo-estimado">Tiempo estimado: —</span>
+          <div class="footer-actions">
+            <button type="button" class="btn-secondary" id="btn-cancelar">Cancelar</button>
+            <button type="submit" class="btn-primary-action" id="btn-crear">Crear orden</button>
+          </div>
+        </footer>
+      </form>
+    </div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../js/config.js"></script>
   <script src="../js/supabase-client.js"></script>
   <script src="../js/utils.js"></script>
   <script src="../js/auth.js"></script>
-  <script>
-    (async () => {
-      const profile = await Auth.requireAuth();
-      if (!profile) return;
-      if (profile.rol !== 'jefe_pista') {
-        alert('No tienes permisos para esta pantalla.');
-        Auth.logout();
-        return;
-      }
-      document.getElementById('user-nombre').textContent = profile.nombre;
-      document.getElementById('user-codigo').textContent = profile.codigo;
-      document.getElementById('btn-logout').addEventListener('click', () => Auth.logout());
-    })();
-  </script>
+  <script src="../js/jefe.js"></script>
 </body>
 </html>
