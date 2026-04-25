@@ -109,6 +109,7 @@ const Jefe = {
     const enTaller = ords.filter(o => o.estado !== 'completada').length;
     const ingresosHoy = ords.filter(o => new Date(o.creada_en) >= hoy).length;
     const enProceso = ords.filter(o => o.estado === 'en_progreso').length;
+    const completadas = ords.filter(o => o.estado === 'completada').length;
     const completadasHoy = ords.filter(o =>
       o.estado === 'completada' && o.cerrada_en && new Date(o.cerrada_en) >= hoy
     ).length;
@@ -117,7 +118,37 @@ const Jefe = {
     document.getElementById('kpi-ingresos-hoy').textContent = ingresosHoy;
     document.getElementById('kpi-en-proceso').textContent = enProceso;
     document.getElementById('kpi-completadas-hoy').textContent = completadasHoy;
+
+    // Actualizar contadores en pestañas
     document.getElementById('count-activas').textContent = enTaller;
+
+    // Actualizar también las otras pestañas si existen los spans
+    const tabComp = document.querySelector('[data-tab="completadas"]');
+    const tabTodas = document.querySelector('[data-tab="todas"]');
+
+    if (tabComp) {
+      let span = tabComp.querySelector('span');
+      if (!span && completadas > 0) {
+        span = document.createElement('span');
+        tabComp.appendChild(span);
+      }
+      if (span) {
+        span.textContent = completadas;
+        span.style.display = completadas > 0 ? '' : 'none';
+      }
+    }
+
+    if (tabTodas) {
+      let span = tabTodas.querySelector('span');
+      if (!span && ords.length > 0) {
+        span = document.createElement('span');
+        tabTodas.appendChild(span);
+      }
+      if (span) {
+        span.textContent = ords.length;
+        span.style.display = ords.length > 0 ? '' : 'none';
+      }
+    }
   },
 
   renderOrdenes() {
@@ -139,15 +170,27 @@ const Jefe = {
     });
 
     const list = document.getElementById('orders-list');
-    const empty = document.getElementById('empty-state');
 
     if (filtradas.length === 0) {
-      list.innerHTML = '';
-      list.appendChild(empty);
+      const mensaje = tab === 'completadas'
+        ? 'Aún no hay órdenes completadas.'
+        : tab === 'todas'
+          ? 'No hay órdenes registradas.'
+          : 'Sin órdenes activas.';
+
+      const sub = tab === 'activas'
+        ? 'Presiona <strong>+ Nueva orden</strong> para crear la primera.'
+        : '';
+
+      list.innerHTML = `
+        <div class="empty-state">
+          <p>${mensaje}</p>
+          ${sub ? `<p style="color: var(--text-dim); font-size: 0.85rem; margin-top: 0.5rem;">${sub}</p>` : ''}
+        </div>
+      `;
       return;
     }
 
-    empty.remove();
     list.innerHTML = filtradas.map(o => this.renderOrdenRow(o)).join('');
   },
 
