@@ -72,7 +72,7 @@ const Tecnico = {
         .select(`
           num_orden, placa, prioridad, estado, motivo, creada_en,
           vehiculos ( marca, modelo, anio ),
-          servicios_orden ( id, estado, servicio_id, tecnico_id, iniciado_en, pausado_en, total_pausado_seg )
+          servicios_orden ( id, estado, servicio_id, tecnico_id )
         `)
         .neq('estado', 'completada')
         .order('creada_en', { ascending: false });
@@ -122,47 +122,15 @@ const Tecnico = {
 
       document.getElementById('banner-orden').textContent = `${ordenActiva.placa} · ${ordenActiva.num_orden}`;
       document.getElementById('banner-servicio').textContent = nombreServ;
+      // Cronómetro real se implementa en Fase 3b-2
+      document.getElementById('banner-cronos').textContent = 'En curso';
+      document.getElementById('banner-status').textContent = 'sin tiempo';
       banner.hidden = false;
 
       this.state.servicioActivo = servicioActivo;
-      this.iniciarCronometroBanner(servicioActivo);
     } else {
       banner.hidden = true;
       this.state.servicioActivo = null;
-      this.detenerCronometroBanner();
-    }
-  },
-
-  iniciarCronometroBanner(servicio) {
-    this.detenerCronometroBanner();
-    if (!servicio.iniciado_en) return;
-
-    const inicioMs = new Date(servicio.iniciado_en).getTime();
-    const pausadoSeg = servicio.total_pausado_seg || 0;
-
-    const update = () => {
-      const ahora = Date.now();
-      const transcurridoMs = ahora - inicioMs - (pausadoSeg * 1000);
-      if (transcurridoMs < 0) {
-        document.getElementById('banner-cronos').textContent = '00:00:00';
-        return;
-      }
-      const totalSeg = Math.floor(transcurridoMs / 1000);
-      const h = Math.floor(totalSeg / 3600);
-      const m = Math.floor((totalSeg % 3600) / 60);
-      const s = totalSeg % 60;
-      const fmt = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-      document.getElementById('banner-cronos').textContent = fmt;
-    };
-
-    update();
-    this.state.cronometroInterval = setInterval(update, 1000);
-  },
-
-  detenerCronometroBanner() {
-    if (this.state.cronometroInterval) {
-      clearInterval(this.state.cronometroInterval);
-      this.state.cronometroInterval = null;
     }
   },
 
