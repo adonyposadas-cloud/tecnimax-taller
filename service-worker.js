@@ -7,17 +7,19 @@
  *  - Invalidación por versión: al subir cambios, incrementa CACHE_VERSION.
  */
 
-const CACHE_VERSION = 'tecnimax-taller-v1.0.0';
+const CACHE_VERSION = 'tecnimax-taller-v1.1.0';
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.json',
   './css/styles.css',
+  './css/jefe.css',
   './js/config.js',
   './js/supabase-client.js',
   './js/utils.js',
   './js/auth.js',
   './js/router.js',
+  './js/jefe.js',
   './pages/admin.html',
   './pages/jefe.html',
   './pages/tecnico.html',
@@ -57,18 +59,47 @@ self.addEventListener('fetch', (event) => {
 
   // No cachear peticiones a Supabase (datos dinámicos)
   if (url.hostname.includes('supabase.co') || url.hostname.includes('supabase.io')) {
-    return; // Dejar que el navegador lo maneje directamente
+    return;
   }
 
   // No cachear POST/PUT/DELETE
   if (event.request.method !== 'GET') return;
 
-  // Cache-first para el app shell
+  // Para HTML, JS y CSS: NETWORK-FIRST (traer siempre lo nuevo si hay red)
+  // Para imágenes y fuentes: CACHE-FIRST (son estáticos)
+  const isAppCode = /\.(html|js|css)(\?.*)?$/.test(url.pathname) ||
+                     url.pathname === '/' ||
+                     url.pathname.endsWith('/');
+
+  if (isAppCode) {
+    // Network-first
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200 && url.origin === self.location.origin) {
+            const clone = response.clone();
+            caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => {
+          // Si falla red, caer al cache
+          return caches.match(event.request).then((cached) => {
+            if (cached) return cached;
+            if (event.request.mode === 'navigate') {
+              return caches.match('./index.html');
+            }
+          });
+        })
+    );
+    return;
+  }
+
+  // Cache-first para imágenes, fuentes y otros recursos estáticos
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
       return fetch(event.request).then((response) => {
-        // Solo cachear respuestas OK del mismo origen
         if (
           response &&
           response.status === 200 &&
@@ -79,7 +110,6 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       }).catch(() => {
-        // Si falla la red y no hay cache, responder con el index (para SPA)
         if (event.request.mode === 'navigate') {
           return caches.match('./index.html');
         }
