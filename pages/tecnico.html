@@ -11,8 +11,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../css/styles.css" />
+  <link rel="stylesheet" href="../css/tecnico.css" />
 </head>
-<body class="app-body">
+<body class="app-body app-mobile">
   <div class="bg-decoration" aria-hidden="true">
     <div class="bg-gradient"></div>
     <div class="bg-grid"></div>
@@ -20,21 +21,48 @@
 
   <header class="app-header">
     <div class="app-brand">
-      <strong>TECNIMAX</strong> · Taller · Técnico
+      <strong>TECNIMAX</strong> · Taller · <span id="user-nombre-header">Técnico</span>
     </div>
     <button id="btn-logout" class="btn-logout">Salir</button>
   </header>
 
-  <main>
-    <div class="welcome-card">
-      <h1>Bienvenido, <span id="user-nombre">Usuario</span></h1>
-      <span class="welcome-rol">TÉCNICO</span>
-      <p>Tu código: <strong id="user-codigo">—</strong></p>
-      <p style="margin-top: 2rem; color: var(--text-muted);">
-        La lista de vehículos y los botones EMPEZAR / PAUSAR / TERMINAR
-        se habilitarán en la <strong>Fase 3</strong>.
-      </p>
-    </div>
+  <main class="tecnico-main">
+
+    <!-- Banner: Trabajo activo (se muestra solo si tiene servicio en curso) -->
+    <section id="banner-activo" class="banner-activo" hidden>
+      <div class="banner-label">TRABAJO ACTIVO</div>
+      <div class="banner-content">
+        <div class="banner-info">
+          <div class="banner-title" id="banner-orden">—</div>
+          <div class="banner-sub" id="banner-servicio">—</div>
+        </div>
+        <div class="banner-time">
+          <div class="banner-cronos" id="banner-cronos">00:00:00</div>
+          <div class="banner-status" id="banner-status">en curso</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Buscador -->
+    <section class="search-section">
+      <input type="search" id="search-input" placeholder="Buscar placa o nº orden..." class="field-input search-input" autocomplete="off" />
+    </section>
+
+    <!-- Lista de vehículos -->
+    <section class="vehiculos-section">
+      <div class="section-title">
+        <span>Vehículos en taller</span>
+        <span class="section-count" id="vehiculos-count">0</span>
+      </div>
+
+      <div id="vehiculos-list" class="vehiculos-list">
+        <div class="empty-state">
+          <p>Sin vehículos en taller en este momento.</p>
+          <p style="color: var(--text-dim); font-size: 0.85rem; margin-top: 0.5rem;">Cuando el jefe cree una orden, aparecerá aquí.</p>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -42,19 +70,6 @@
   <script src="../js/supabase-client.js"></script>
   <script src="../js/utils.js"></script>
   <script src="../js/auth.js"></script>
-  <script>
-    (async () => {
-      const profile = await Auth.requireAuth();
-      if (!profile) return;
-      if (profile.rol !== 'tecnico') {
-        alert('No tienes permisos para esta pantalla.');
-        Auth.logout();
-        return;
-      }
-      document.getElementById('user-nombre').textContent = profile.nombre;
-      document.getElementById('user-codigo').textContent = profile.codigo;
-      document.getElementById('btn-logout').addEventListener('click', () => Auth.logout());
-    })();
-  </script>
+  <script src="../js/tecnico.js"></script>
 </body>
 </html>
