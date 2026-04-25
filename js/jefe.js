@@ -290,13 +290,14 @@ const Jefe = {
       this.crearOrden();
     });
 
-    // Click en una fila de orden -> log por ahora (Fase 3b abrirá detalle)
+    // Click en una fila de orden -> abre detalle
     document.getElementById('orders-list').addEventListener('click', (e) => {
       const row = e.target.closest('.order-row');
       if (row) {
         const num = row.dataset.orden;
-        Utils.log('Click en orden:', num);
-        // TODO Fase 3b: abrir detalle
+        if (num) {
+          window.location.href = `orden-detalle.html?orden=${encodeURIComponent(num)}`;
+        }
       }
     });
   },
