@@ -51,6 +51,22 @@
         </div>
       </section>
 
+      <!-- Panel de acciones del Jefe / Admin -->
+      <section id="panel-jefe" class="panel-jefe" hidden>
+        <div class="panel-jefe-label">ACCIONES DE GESTIÓN</div>
+        <div class="panel-jefe-actions">
+          <button id="btn-cambiar-prioridad" class="btn-jefe-action">
+            <span>↕</span> Cambiar prioridad
+          </button>
+          <button id="btn-agregar-servicio-jefe" class="btn-jefe-action" hidden>
+            <span>+</span> Agregar servicio
+          </button>
+          <button id="btn-cancelar-orden" class="btn-jefe-action btn-jefe-danger">
+            <span>✗</span> Cancelar orden
+          </button>
+        </div>
+      </section>
+
       <!-- Tarjeta principal -->
       <section class="card card-collapsible" id="card-info">
         <div class="card-header card-header-clickable" id="card-header-toggle">
@@ -207,6 +223,108 @@
       <footer class="modal-footer">
         <button type="button" class="btn-secondary" id="btn-cancelar-agregar">Cancelar</button>
         <button type="button" class="btn-primary-action" id="btn-confirmar-agregar" disabled>Agregar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL CAMBIAR PRIORIDAD (Jefe) ============= -->
+  <div id="modal-prioridad" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Cambiar prioridad</h2>
+      </header>
+      <div class="modal-body">
+        <p class="modal-desc">Selecciona la nueva prioridad para esta orden:</p>
+        <div class="prio-grid">
+          <button type="button" class="prio-option" data-prio="normal">
+            <div class="prio-option-title">Normal</div>
+            <div class="prio-option-desc">Atención según orden de llegada</div>
+          </button>
+          <button type="button" class="prio-option" data-prio="urgente">
+            <div class="prio-option-title">Urgente</div>
+            <div class="prio-option-desc">Atención prioritaria</div>
+          </button>
+        </div>
+        <div id="prioridad-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-prioridad">Cancelar</button>
+        <button type="button" class="btn-primary-action" id="btn-confirmar-prioridad" disabled>Confirmar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL CANCELAR ORDEN (Jefe) ============= -->
+  <div id="modal-cancelar-orden" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Cancelar orden</h2>
+      </header>
+      <div class="modal-body">
+        <div class="modal-warn" style="margin-bottom: 12px;">
+          ⚠️ Esta acción marcará la orden y todos sus servicios pendientes como cancelados.
+          Los servicios completados se mantienen en el histórico.
+        </div>
+        <div class="field">
+          <label for="cancelar-motivo">Motivo de la cancelación <span class="required">*</span></label>
+          <textarea id="cancelar-motivo" class="field-input field-textarea"
+            placeholder="¿Por qué se cancela? (cliente cambió de opinión, vehículo no apto, etc.)"></textarea>
+        </div>
+        <div id="cancelar-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cerrar-cancelar">No, mantener</button>
+        <button type="button" class="btn-stop" id="btn-confirmar-cancelar">Sí, cancelar orden</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL REASIGNAR TÉCNICO (Jefe) ============= -->
+  <div id="modal-reasignar" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Reasignar técnico</h2>
+      </header>
+      <div class="modal-body">
+        <div id="reasignar-resumen" class="resumen-box"></div>
+        <p class="modal-desc">Selecciona el nuevo técnico:</p>
+        <div id="reasignar-tecnicos" class="reasignar-list"></div>
+        <div class="field" style="margin-top: 12px;">
+          <label class="checkbox-label">
+            <input type="checkbox" id="reasignar-conservar-tiempo" />
+            <span>Conservar el tiempo trabajado actual (recomendado)</span>
+          </label>
+        </div>
+        <div id="reasignar-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-reasignar">Cancelar</button>
+        <button type="button" class="btn-primary-action" id="btn-confirmar-reasignar" disabled>Reasignar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL AGREGAR SERVICIO (Jefe) ============= -->
+  <div id="modal-agregar-jefe" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+      <header class="modal-header">
+        <h2 class="modal-title">Agregar servicios a esta orden</h2>
+      </header>
+      <div class="modal-body">
+        <div class="categorias-chips" id="agregar-jefe-cats"></div>
+        <div class="servicios-grid" id="agregar-jefe-grid"></div>
+        <div id="agregar-jefe-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <span class="footer-info" id="agregar-jefe-counter">0 seleccionados</span>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn-secondary" id="btn-cancelar-agregar-jefe">Cancelar</button>
+          <button type="button" class="btn-primary-action" id="btn-confirmar-agregar-jefe" disabled>Agregar</button>
+        </div>
       </footer>
     </div>
   </div>
