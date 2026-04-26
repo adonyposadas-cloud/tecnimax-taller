@@ -167,7 +167,7 @@ const OrdenDetalle = {
   },
 
   // ==================== HELPERS BUSINESS ====================
-  /** ¿Hay servicios EN otra orden trabajados por este técnico? */
+  /** ¿Hay servicios EN otra orden trabajados por este técnico? Solo cuenta los EN_PROGRESO, NO los pausados */
   async otraOrdenTengoTrabajando() {
     if (this.state.profile.rol !== 'tecnico') return null;
     try {
@@ -175,7 +175,7 @@ const OrdenDetalle = {
         .from('servicios_orden')
         .select('num_orden')
         .eq('tecnico_id', this.state.profile.id)
-        .in('estado', ['en_progreso', 'pausado']);
+        .eq('estado', 'en_progreso');  // solo en_progreso, NO pausado
       if (error) throw error;
       const otras = (data || []).filter(s => s.num_orden !== this.state.numOrden);
       return otras.length > 0 ? otras[0].num_orden : null;
@@ -300,7 +300,27 @@ const OrdenDetalle = {
       return;
     }
 
-    cont.innerHTML = this.state.servicios.map(s => this.renderServicioCard(s)).join('');
+    // Ordenar servicios:
+    //   1) en_progreso (mis cronómetros corriendo)
+    //   2) pausado (mis servicios pausados)
+    //   3) pendiente (lo que falta)
+    //   4) completado (histórico al final)
+    // Dentro de cada grupo: los míos primero, luego por id ascendente
+    const userId = this.state.profile.id;
+    const ordenEstado = { 'en_progreso': 1, 'pausado': 2, 'pendiente': 3, 'completado': 4 };
+
+    const ordenados = [...this.state.servicios].sort((a, b) => {
+      const eA = ordenEstado[a.estado] || 99;
+      const eB = ordenEstado[b.estado] || 99;
+      if (eA !== eB) return eA - eB;
+      // Dentro del mismo estado: los míos primero
+      const aMio = a.tecnico_id === userId ? 0 : 1;
+      const bMio = b.tecnico_id === userId ? 0 : 1;
+      if (aMio !== bMio) return aMio - bMio;
+      return a.id - b.id;
+    });
+
+    cont.innerHTML = ordenados.map(s => this.renderServicioCard(s)).join('');
 
     // Bindear botones
     cont.querySelectorAll('[data-action]').forEach(btn => {
@@ -312,7 +332,6 @@ const OrdenDetalle = {
     });
 
     // Iniciar cronómetros para servicios en curso (del técnico actual)
-    const userId = this.state.profile.id;
     this.state.servicios.forEach(s => {
       if (s.tecnico_id === userId && s.estado === 'en_progreso' && s.hora_inicio) {
         this.iniciarCronometro(s);
@@ -868,6 +887,25 @@ const OrdenDetalle = {
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this.cerrarModales();
     });
+
+    // Toggle de la tarjeta de info colapsable
+    const headerToggle = document.getElementById('card-header-toggle');
+    if (headerToggle) {
+      headerToggle.addEventListener('click', () => this.toggleInfoCard());
+    }
+  },
+
+  toggleInfoCard() {
+    const card = document.getElementById('card-info');
+    const body = document.getElementById('card-body-info');
+    const isExpanded = card.classList.contains('expanded');
+    if (isExpanded) {
+      card.classList.remove('expanded');
+      body.hidden = true;
+    } else {
+      card.classList.add('expanded');
+      body.hidden = false;
+    }
   },
 
   cerrarModales() {
