@@ -855,3 +855,65 @@
     justify-content: center;
   }
 }
+
+/* ============================================================================
+   CRONÓMETROS INLINE EN CADA LÍNEA DE ACTIVIDAD
+   ============================================================================ */
+.actividad-nombre {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actividad-cronos {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--azul-claro);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  background: rgba(46, 117, 182, 0.12);
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: auto;
+}
+
+.actividad-cronos.pausa-cronos-inline {
+  color: var(--amarillo);
+  background: rgba(255, 193, 7, 0.12);
+}
+
+.actividad-cronos.pausa-cronos-alerta {
+  color: var(--rojo-urgente) !important;
+  background: rgba(220, 53, 69, 0.18) !important;
+  animation: pulsoAlerta 2s ease-in-out infinite;
+  font-weight: 700;
+}
+
+.tecnico-actividad-linea.atenuado .actividad-cronos {
+  background: rgba(255, 193, 7, 0.08);
+}
+
+/* Ajustar layout de actividad-linea cuando tiene cronómetro */
+.tecnico-actividad-linea {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+@media (max-width: 600px) {
+  .tecnico-actividad-linea {
+    flex-wrap: wrap;
+  }
+  .actividad-cronos {
+    margin-left: 0;
+    margin-top: 2px;
+  }
+}
