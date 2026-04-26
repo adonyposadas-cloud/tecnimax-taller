@@ -69,6 +69,11 @@
         <div class="kpi-label">Tiempo promedio</div>
         <div class="kpi-value" id="kpi-tiempo-promedio">—</div>
       </div>
+      <div class="kpi-card kpi-card-clickable kpi-card-alertas-mtto" data-kpi="alertas-mtto" id="kpi-card-alertas-mtto" hidden>
+        <div class="kpi-label">⚠️ Alertas mtto</div>
+        <div class="kpi-value" id="kpi-alertas-mtto">—</div>
+        <div class="kpi-hint" id="kpi-alertas-mtto-hint">Click para ver</div>
+      </div>
     </section>
 
     <!-- Alertas sospechosos -->
@@ -131,6 +136,57 @@
       </div>
     </div>
   </div>
+
+  <style>
+    /* ===== Alertas Mantenimiento (Fase 4b) ===== */
+    .kpi-card-alertas-mtto {
+      background: rgba(220, 53, 69, 0.10);
+      border-color: rgba(220, 53, 69, 0.35);
+    }
+    .kpi-card-alertas-mtto .kpi-value {
+      color: var(--rojo-urgente);
+    }
+    .kpi-card-alertas-mtto.alertas-solo-proximas {
+      background: rgba(255, 193, 7, 0.10);
+      border-color: rgba(255, 193, 7, 0.35);
+    }
+    .kpi-card-alertas-mtto.alertas-solo-proximas .kpi-value {
+      color: var(--amarillo);
+    }
+    .kpi-modal-alerta-row {
+      display: grid;
+      grid-template-columns: 14px 1fr auto;
+      gap: var(--sp-3);
+      align-items: center;
+      padding: var(--sp-2) var(--sp-3);
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .kpi-modal-alerta-row:last-child { border-bottom: none; }
+    .kpi-modal-alerta-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .kpi-modal-alerta-dot.vencido { background: var(--rojo-urgente); }
+    .kpi-modal-alerta-dot.proximo { background: var(--amarillo); }
+    .kpi-modal-alerta-info { display: flex; flex-direction: column; gap: 2px; }
+    .kpi-modal-alerta-placa {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--text);
+    }
+    .kpi-modal-alerta-serv {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .kpi-modal-alerta-pct {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+    .kpi-modal-alerta-pct.vencido { color: var(--rojo-urgente); }
+    .kpi-modal-alerta-pct.proximo { color: var(--amarillo); }
+  </style>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../js/config.js"></script>
