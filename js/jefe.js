@@ -24,6 +24,8 @@ const Jefe = {
     serviciosSeleccionados: new Set(),
     prioridad: 'normal',
     realtimeChannel: null,
+    alertasMtto: [],     // Alertas de mantenimiento KM (Fase 4b)
+    alertasExpandidas: false,
   },
 
   // ==================== INIT ====================
@@ -46,6 +48,7 @@ const Jefe = {
 
     await this.cargarDatosBase();
     await this.cargarOrdenes();
+    this.cargarAlertasMtto();
     this.bindEventos();
     this.activarRealtime();
   },
@@ -77,6 +80,141 @@ const Jefe = {
       Utils.log('Error cargando catálogo:', err);
       alert('No se pudo cargar el catálogo de servicios.');
     }
+  },
+
+  // ==================== ALERTAS DE MANTENIMIENTO (Fase 4b) ====================
+  async cargarAlertasMtto() {
+    try {
+      const { data, error } = await supabaseClient.rpc('f_alertas_flota');
+      if (error) throw error;
+      this.state.alertasMtto = data || [];
+      this.renderAlertasMtto();
+    } catch (err) {
+      Utils.log('Error cargando alertas mantenimiento:', err);
+      // Si la función no existe (BD vieja), simplemente ocultar la sección
+      const sec = document.getElementById('alertas-mtto-section');
+      if (sec) sec.hidden = true;
+    }
+  },
+
+  renderAlertasMtto() {
+    const sec = document.getElementById('alertas-mtto-section');
+    const lista = document.getElementById('alertas-mtto-lista');
+    const desc = document.getElementById('alertas-mtto-desc');
+    const icon = document.getElementById('alertas-mtto-icon');
+    const toggleBtn = document.getElementById('alertas-mtto-toggle');
+    if (!sec) return;
+
+    const alertas = this.state.alertasMtto;
+    if (!alertas || alertas.length === 0) {
+      sec.hidden = true;
+      return;
+    }
+
+    const vencidas = alertas.filter(a => a.estado === 'vencido').length;
+    const proximas = alertas.filter(a => a.estado === 'proximo').length;
+
+    icon.textContent = vencidas > 0 ? '🔴' : '🟡';
+    desc.textContent = `${vencidas} vencida${vencidas !== 1 ? 's' : ''} · ${proximas} próxima${proximas !== 1 ? 's' : ''}`;
+    sec.hidden = false;
+
+    // Agrupar por placa para mostrar una fila por vehículo con sus servicios
+    const porPlaca = {};
+    alertas.forEach(a => {
+      if (!porPlaca[a.placa]) {
+        porPlaca[a.placa] = {
+          placa: a.placa,
+          marca: a.marca,
+          modelo: a.modelo,
+          servicios: [],
+          peor_estado: 'proximo',
+          gps_viejo: a.km_gps_desactualizado,
+        };
+      }
+      porPlaca[a.placa].servicios.push(a);
+      if (a.estado === 'vencido') porPlaca[a.placa].peor_estado = 'vencido';
+    });
+
+    const filas = Object.values(porPlaca).sort((a, b) => {
+      if (a.peor_estado !== b.peor_estado) return a.peor_estado === 'vencido' ? -1 : 1;
+      return 0;
+    });
+
+    lista.innerHTML = filas.map(v => {
+      const dotClass = v.peor_estado === 'vencido' ? 'alerta-dot-rojo' : 'alerta-dot-amarillo';
+      const gpsHint = v.gps_viejo ? '<span class="alerta-gps-viejo" title="GPS posiblemente desactualizado">⏱</span>' : '';
+      const servicios = v.servicios.map(s => {
+        const cls = s.estado === 'vencido' ? 'alerta-serv-vencido' : 'alerta-serv-proximo';
+        let detalle = '';
+        if (s.km_recorridos != null && s.intervalo_km) {
+          detalle = `${Utils.escapeHtml(String(s.km_recorridos))}/${Utils.escapeHtml(String(s.intervalo_km))} km`;
+        } else if (s.dias_transcurridos != null && s.intervalo_dias) {
+          detalle = `${Utils.escapeHtml(String(s.dias_transcurridos))}/${Utils.escapeHtml(String(s.intervalo_dias))} días`;
+        }
+        return `<span class="alerta-serv ${cls}">${Utils.escapeHtml(s.servicio_nombre)} <small>${detalle}</small></span>`;
+      }).join('');
+
+      return `
+        <div class="alerta-mtto-row" data-placa="${Utils.escapeHtml(v.placa)}">
+          <span class="alerta-dot ${dotClass}"></span>
+          <div class="alerta-row-info">
+            <div class="alerta-row-placa">${Utils.escapeHtml(v.placa)} ${gpsHint}</div>
+            <div class="alerta-row-vehiculo">${Utils.escapeHtml(v.marca || '')} ${Utils.escapeHtml(v.modelo || '')}</div>
+          </div>
+          <div class="alerta-row-servicios">${servicios}</div>
+          <button class="btn-crear-mtto" data-placa="${Utils.escapeHtml(v.placa)}">+ Orden</button>
+        </div>
+      `;
+    }).join('');
+
+    // Click en botón "+ Orden" → crear nueva orden con servicios pre-seleccionados
+    lista.querySelectorAll('.btn-crear-mtto').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const placa = btn.dataset.placa;
+        this.crearOrdenDesdeAlerta(placa);
+      });
+    });
+
+    // Toggle expandir/colapsar
+    if (!toggleBtn.dataset.bound) {
+      toggleBtn.dataset.bound = 'true';
+      toggleBtn.addEventListener('click', () => {
+        this.state.alertasExpandidas = !this.state.alertasExpandidas;
+        lista.hidden = !this.state.alertasExpandidas;
+        toggleBtn.textContent = this.state.alertasExpandidas ? 'Ocultar' : 'Ver';
+      });
+    }
+  },
+
+  crearOrdenDesdeAlerta(placa) {
+    const alertas = this.state.alertasMtto.filter(a => a.placa === placa);
+    if (alertas.length === 0) return;
+
+    // Pre-cargar la placa y los servicios alertados en el modal de nueva orden
+    this.abrirModal();
+
+    setTimeout(() => {
+      // Setear placa
+      const inputPlaca = document.getElementById('placa');
+      inputPlaca.value = placa;
+      this.buscarVehiculo();
+
+      // Pre-seleccionar los servicios alertados (vencidos primero)
+      const idsAlertados = new Set(alertas.map(a => a.servicio_id));
+      this.state.serviciosSeleccionados = new Set(idsAlertados);
+
+      // Sugerir motivo
+      const inputMotivo = document.getElementById('motivo');
+      const vencidos = alertas.filter(a => a.estado === 'vencido').length;
+      inputMotivo.value = vencidos > 0
+        ? 'Mantenimiento preventivo (servicios vencidos)'
+        : 'Mantenimiento preventivo';
+
+      // Re-render para mostrar los servicios marcados
+      this.renderServicios();
+      this.actualizarContador();
+    }, 200);
   },
 
   // ==================== ÓRDENES ====================
@@ -630,6 +768,7 @@ const Jefe = {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'servicios_orden' }, () => {
         Utils.log('Realtime: cambio en servicios_orden');
         this.cargarOrdenes();
+        this.cargarAlertasMtto();
       })
       .subscribe();
 
