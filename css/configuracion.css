@@ -2,6 +2,10 @@
    TECNIMAX TALLER — Estilos de Configuración (admin only)
    ============================================================================= */
 
+/* Forzar que [hidden] gane sobre cualquier display:flex/block del CSS heredado.
+   Sin esto, los modales invisibles capturan todos los clicks. */
+[hidden] { display: none !important; }
+
 .config-main {
   max-width: 1100px;
   margin: 0 auto;
