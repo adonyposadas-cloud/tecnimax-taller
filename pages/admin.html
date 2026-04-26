@@ -11,6 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../css/styles.css" />
+  <link rel="stylesheet" href="../css/admin.css" />
 </head>
 <body class="app-body">
   <div class="bg-decoration" aria-hidden="true">
@@ -20,21 +21,96 @@
 
   <header class="app-header">
     <div class="app-brand">
-      <strong>TECNIMAX</strong> · Taller · Administración
+      <strong>TECNIMAX</strong> · Taller · <span id="user-nombre-header">Administración</span>
     </div>
     <button id="btn-logout" class="btn-logout">Salir</button>
   </header>
 
-  <main>
-    <div class="welcome-card">
-      <h1>Bienvenido, <span id="user-nombre">Cargando...</span></h1>
-      <span class="welcome-rol" id="user-rol-badge">—</span>
-      <p>Tu código: <strong id="user-codigo">—</strong></p>
-      <p style="margin-top: 2rem; color: var(--text-muted);">
-        El panel de administración completo (tablero en vivo, reportes, configuración
-        de usuarios y vehículos) se habilitará en la <strong>Fase 3</strong>.
-      </p>
-    </div>
+  <main class="admin-main">
+
+    <!-- Selector de rango -->
+    <section class="rango-bar">
+      <div class="rango-tabs">
+        <button class="rango-tab rango-active" data-rango="hoy">Hoy</button>
+        <button class="rango-tab" data-rango="semana">Esta semana</button>
+        <button class="rango-tab" data-rango="mes">Este mes</button>
+      </div>
+      <div class="rango-info" id="rango-info">—</div>
+    </section>
+
+    <!-- KPIs -->
+    <section class="kpis-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">En taller ahora</div>
+        <div class="kpi-value" id="kpi-en-taller">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">En proceso</div>
+        <div class="kpi-value kpi-info" id="kpi-en-proceso">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Pausados</div>
+        <div class="kpi-value kpi-warning" id="kpi-pausados">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Ingresos</div>
+        <div class="kpi-value" id="kpi-ingresos">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Completados</div>
+        <div class="kpi-value kpi-success" id="kpi-completados">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Tiempo promedio</div>
+        <div class="kpi-value" id="kpi-tiempo-promedio">—</div>
+      </div>
+    </section>
+
+    <!-- Alertas sospechosos -->
+    <section class="card alerta-card" id="alerta-card" hidden>
+      <div class="alerta-header">
+        <span class="alerta-icon">⚠️</span>
+        <div class="alerta-content">
+          <div class="alerta-title">Servicios sospechosos detectados</div>
+          <div class="alerta-desc" id="alerta-count">—</div>
+        </div>
+        <button class="btn-toggle-alerta" id="btn-toggle-alertas">Ver</button>
+      </div>
+      <div class="alerta-lista" id="alerta-lista" hidden></div>
+    </section>
+
+    <!-- Tablero de técnicos en vivo -->
+    <section class="card">
+      <div class="card-header">
+        <h2 class="section-title-h2">Estado de técnicos en vivo</h2>
+        <span class="card-badge" id="tecnicos-stats">—</span>
+      </div>
+      <div id="tecnicos-list" class="tecnicos-list">
+        <div class="empty-state"><p>Cargando técnicos...</p></div>
+      </div>
+    </section>
+
+    <!-- Productividad por técnico -->
+    <section class="card">
+      <div class="card-header">
+        <h2 class="section-title-h2">Productividad <span class="rango-label" id="prod-rango-label">hoy</span></h2>
+      </div>
+      <div id="productividad-list" class="productividad-list">
+        <div class="empty-state"><p>Sin datos en este rango.</p></div>
+      </div>
+    </section>
+
+    <!-- Cancelaciones -->
+    <section class="card">
+      <div class="card-header">
+        <h2 class="section-title-h2">Cancelaciones <span class="rango-label" id="canc-rango-label">hoy</span></h2>
+        <span class="card-badge" id="canc-count">0</span>
+      </div>
+      <div id="cancelaciones-list" class="cancelaciones-list">
+        <div class="empty-state"><p>Sin cancelaciones en este rango.</p></div>
+      </div>
+    </section>
+
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -42,25 +118,6 @@
   <script src="../js/supabase-client.js"></script>
   <script src="../js/utils.js"></script>
   <script src="../js/auth.js"></script>
-  <script>
-    (async () => {
-      const profile = await Auth.requireAuth();
-      if (!profile) return;
-
-      if (profile.rol !== 'admin') {
-        alert('No tienes permisos para esta pantalla.');
-        Auth.logout();
-        return;
-      }
-
-      document.getElementById('user-nombre').textContent = profile.nombre;
-      document.getElementById('user-codigo').textContent = profile.codigo;
-      document.getElementById('user-rol-badge').textContent = 'ADMINISTRADOR';
-
-      document.getElementById('btn-logout').addEventListener('click', () => {
-        Auth.logout();
-      });
-    })();
-  </script>
+  <script src="../js/admin.js"></script>
 </body>
 </html>
