@@ -330,6 +330,85 @@
     </div>
   </div>
 
+  <style>
+    /* ===== Banner alertas mantenimiento (Fase 4b) ===== */
+    .banner-alertas-mtto {
+      background: rgba(220, 53, 69, 0.10);
+      border: 1px solid rgba(220, 53, 69, 0.35);
+      border-radius: var(--r-md);
+      padding: var(--sp-3);
+      margin-bottom: var(--sp-3);
+    }
+    .banner-alertas-header {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-3);
+      margin-bottom: var(--sp-2);
+    }
+    .banner-alertas-icon { font-size: 1.5rem; }
+    .banner-alertas-titulo {
+      font-weight: 600;
+      color: var(--text);
+    }
+    .banner-alertas-subtitulo {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    .mtto-list {
+      list-style: none;
+      padding: 0;
+      margin: var(--sp-2) 0;
+    }
+    .mtto-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      margin-bottom: 4px;
+      border-radius: var(--r-sm);
+      font-size: 0.9rem;
+    }
+    .mtto-item.mtto-vencido {
+      background: rgba(220, 53, 69, 0.12);
+      border-left: 3px solid var(--rojo-urgente);
+    }
+    .mtto-item.mtto-proximo {
+      background: rgba(255, 193, 7, 0.10);
+      border-left: 3px solid var(--amarillo);
+    }
+    .mtto-item-nombre {
+      color: var(--text);
+      font-weight: 500;
+    }
+    .mtto-item-detalle {
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+    .banner-alertas-footer {
+      margin-top: var(--sp-2);
+      text-align: right;
+    }
+    .btn-agregar-alertas {
+      background: var(--azul);
+      color: white;
+      border: none;
+      padding: 8px 14px;
+      border-radius: var(--r-sm);
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+    .btn-agregar-alertas:hover {
+      background: var(--azul-claro);
+    }
+    .mtto-hint {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+  </style>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../js/config.js"></script>
   <script src="../js/supabase-client.js"></script>
