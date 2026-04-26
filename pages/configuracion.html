@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0F2F4A" />
+  <title>Configuración — TECNIMAX Taller</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="../icons/favicon-32.png" />
+  <link rel="manifest" href="../manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/styles.css" />
+  <link rel="stylesheet" href="../css/admin.css" />
+  <link rel="stylesheet" href="../css/configuracion.css" />
+</head>
+<body class="app-body">
+  <div class="bg-decoration" aria-hidden="true">
+    <div class="bg-gradient"></div>
+    <div class="bg-grid"></div>
+  </div>
+
+  <header class="app-header">
+    <button class="btn-back" id="btn-back">← Volver</button>
+    <div class="app-brand">
+      <strong>TECNIMAX</strong> · Configuración · <span id="user-nombre-header">Admin</span>
+    </div>
+    <button id="btn-logout" class="btn-logout">Salir</button>
+  </header>
+
+  <main class="config-main">
+
+    <div id="config-loading" class="loading-state">
+      <p>Cargando...</p>
+    </div>
+
+    <div id="config-error" class="error-state" hidden>
+      <p id="config-error-msg">No tienes permisos para esta sección.</p>
+    </div>
+
+    <div id="config-content" hidden>
+
+      <!-- ============= SECCIÓN A: CATÁLOGO DE SERVICIOS ============= -->
+      <section class="card config-section">
+        <div class="card-header card-header-clickable" data-section="catalogo">
+          <h2 class="section-title-h2">⚙️ Catálogo de servicios</h2>
+          <span class="card-badge" id="catalogo-count">0</span>
+          <span class="config-toggle" id="toggle-catalogo">▼</span>
+        </div>
+        <div id="catalogo-body" class="config-body">
+
+          <!-- Toolbar: buscar + agregar -->
+          <div class="config-toolbar">
+            <input type="search" id="catalogo-search" class="field-input" placeholder="Buscar servicio..." />
+            <button id="btn-agregar-servicio" class="btn-primary-action">+ Nuevo servicio</button>
+          </div>
+
+          <div id="catalogo-list" class="config-list">
+            <p class="empty-state">Cargando catálogo...</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============= SECCIÓN B: INTERVALOS DE MANTENIMIENTO ============= -->
+      <section class="card config-section">
+        <div class="card-header card-header-clickable" data-section="intervalos">
+          <h2 class="section-title-h2">🔧 Intervalos de mantenimiento</h2>
+          <span class="card-badge" id="intervalos-count">0</span>
+          <span class="config-toggle" id="toggle-intervalos">▼</span>
+        </div>
+        <div id="intervalos-body" class="config-body" hidden>
+          <p class="config-hint">Define cada cuánto se debe hacer cada servicio preventivo. Si tiene km Y días, gana el más urgente de los dos.</p>
+          <div id="intervalos-list" class="config-list">
+            <p class="empty-state">Cargando intervalos...</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============= SECCIÓN C: GRUPOS DE WHATSAPP ============= -->
+      <section class="card config-section">
+        <div class="card-header card-header-clickable" data-section="grupos">
+          <h2 class="section-title-h2">💬 Grupos de WhatsApp</h2>
+          <span class="card-badge" id="grupos-count">0</span>
+          <span class="config-toggle" id="toggle-grupos">▼</span>
+        </div>
+        <div id="grupos-body" class="config-body" hidden>
+          <p class="config-hint">Si un link deja de funcionar, regenera el link en WhatsApp y pégalo aquí.</p>
+          <div id="grupos-list" class="config-list">
+            <p class="empty-state">Cargando grupos...</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+  </main>
+
+  <!-- ============= MODAL: AGREGAR / EDITAR SERVICIO ============= -->
+  <div id="modal-servicio" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title" id="modal-servicio-titulo">Nuevo servicio</h2>
+      </header>
+      <div class="modal-body">
+        <div class="field">
+          <label for="servicio-nombre">Nombre <span class="required">*</span></label>
+          <input type="text" id="servicio-nombre" class="field-input" placeholder="Ej: Cambio de sensor MAP" />
+        </div>
+        <div class="field">
+          <label for="servicio-categoria">Categoría <span class="required">*</span></label>
+          <select id="servicio-categoria" class="field-input"></select>
+        </div>
+        <div class="field">
+          <label for="servicio-tiempo">Tiempo promedio (minutos, opcional)</label>
+          <input type="number" id="servicio-tiempo" class="field-input" min="1" max="600" placeholder="Ej: 30" />
+        </div>
+        <div id="servicio-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-servicio">Cancelar</button>
+        <button type="button" class="btn-primary-action" id="btn-confirmar-servicio">Guardar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: EDITAR INTERVALO ============= -->
+  <div id="modal-intervalo" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Editar intervalo</h2>
+      </header>
+      <div class="modal-body">
+        <p class="modal-desc" id="intervalo-servicio-nombre">—</p>
+        <div class="field">
+          <label for="intervalo-km">Intervalo en KM (vacío = no aplica)</label>
+          <input type="number" id="intervalo-km" class="field-input" min="0" placeholder="Ej: 5000" />
+        </div>
+        <div class="field">
+          <label for="intervalo-dias">Intervalo en días (vacío = no aplica)</label>
+          <input type="number" id="intervalo-dias" class="field-input" min="0" placeholder="Ej: 90" />
+        </div>
+        <p class="modal-warn" style="font-size: 0.8rem;">⚠️ Al menos uno de los dos debe tener valor.</p>
+        <div id="intervalo-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-intervalo">Cancelar</button>
+        <button type="button" class="btn-primary-action" id="btn-confirmar-intervalo">Guardar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: EDITAR GRUPO WHATSAPP ============= -->
+  <div id="modal-grupo" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Editar grupo de WhatsApp</h2>
+      </header>
+      <div class="modal-body">
+        <p class="modal-desc" id="grupo-codigo-display">—</p>
+        <div class="field">
+          <label for="grupo-nombre">Nombre visible</label>
+          <input type="text" id="grupo-nombre" class="field-input" placeholder="Ej: Grupo de Compras" />
+        </div>
+        <div class="field">
+          <label for="grupo-link">Invite link <span class="required">*</span></label>
+          <input type="url" id="grupo-link" class="field-input" placeholder="https://chat.whatsapp.com/..." />
+          <span class="field-help">Pega el link de invitación del grupo. Empieza con https://chat.whatsapp.com/</span>
+        </div>
+        <div id="grupo-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-grupo">Cancelar</button>
+        <button type="button" class="btn-primary-action" id="btn-confirmar-grupo">Guardar</button>
+      </footer>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/config.js"></script>
+  <script src="../js/supabase-client.js"></script>
+  <script src="../js/utils.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/configuracion.js"></script>
+</body>
+</html>
