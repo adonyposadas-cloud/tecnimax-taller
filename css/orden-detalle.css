@@ -123,6 +123,36 @@
   border-bottom: 1px solid var(--border);
 }
 
+.card-header-clickable {
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: none;
+}
+
+.card-header-clickable:hover {
+  background: rgba(255,255,255,0.03);
+}
+
+.card-collapsible.expanded .card-header-clickable {
+  border-bottom: 1px solid var(--border);
+}
+
+.card-toggle-icon {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  transition: transform 0.2s ease;
+  margin-left: 8px;
+  align-self: center;
+}
+
+.card-collapsible.expanded .card-toggle-icon {
+  transform: rotate(180deg);
+}
+
+.card-body-collapsible[hidden] {
+  display: none !important;
+}
+
 .card-body { padding: var(--sp-4); }
 
 .vehiculo-info { flex: 1; min-width: 0; }
