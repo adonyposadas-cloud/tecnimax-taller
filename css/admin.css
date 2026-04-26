@@ -750,3 +750,31 @@
     gap: var(--sp-2);
   }
 }
+
+/* ============================================================================
+   CRONÓMETRO DE PAUSA EN ADMIN
+   ============================================================================ */
+.tecnico-pausa-cronos {
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--amarillo);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  transition: all 0.3s;
+}
+
+.tecnico-pausa-cronos.pausa-cronos-alerta {
+  color: var(--rojo-urgente);
+  background: rgba(220, 53, 69, 0.12);
+  padding: 4px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(220, 53, 69, 0.3);
+  animation: pulsoAlerta 2s ease-in-out infinite;
+}
+
+@keyframes pulsoAlerta {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(220, 53, 69, 0); }
+}
