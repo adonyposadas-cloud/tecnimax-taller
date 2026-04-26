@@ -1,0 +1,421 @@
+/* =============================================================================
+   TECNIMAX TALLER — Tablero Admin (Fase 3c)
+   ============================================================================= */
+
+.admin-main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 var(--sp-3) var(--sp-7);
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* ============================================================================
+   SELECTOR DE RANGO
+   ============================================================================ */
+.rango-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  flex-wrap: wrap;
+}
+
+.rango-tabs {
+  display: flex;
+  gap: 4px;
+  background: rgba(255,255,255,0.04);
+  padding: 4px;
+  border-radius: var(--r-sm);
+}
+
+.rango-tab {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 8px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.rango-tab:hover { color: var(--text); }
+
+.rango-tab.rango-active {
+  background: rgba(46, 117, 182, 0.18);
+  color: var(--azul-claro);
+}
+
+.rango-info {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* ============================================================================
+   KPIs
+   ============================================================================ */
+.kpis-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--sp-2);
+}
+
+.kpi-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.kpi-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-2);
+}
+
+.kpi-value {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--text);
+}
+
+.kpi-value.kpi-info { color: var(--azul-claro); }
+.kpi-value.kpi-success { color: var(--verde-ok); }
+.kpi-value.kpi-warning { color: var(--amarillo); }
+.kpi-value.kpi-danger { color: var(--rojo-urgente); }
+
+@media (max-width: 1100px) {
+  .kpis-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 600px) {
+  .kpis-grid { grid-template-columns: repeat(2, 1fr); }
+  .kpi-value { font-size: 1.4rem; }
+}
+
+/* ============================================================================
+   ALERTA DE SOSPECHOSOS
+   ============================================================================ */
+.alerta-card {
+  background: linear-gradient(135deg, rgba(220, 53, 69, 0.12), rgba(220, 53, 69, 0.06));
+  border: 1px solid rgba(220, 53, 69, 0.4);
+}
+
+.alerta-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+}
+
+.alerta-icon { font-size: 1.6rem; }
+
+.alerta-content { flex: 1; }
+
+.alerta-title {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--rojo-urgente);
+}
+
+.alerta-desc {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.btn-toggle-alerta {
+  background: rgba(220, 53, 69, 0.16);
+  border: 1px solid rgba(220, 53, 69, 0.4);
+  color: var(--rojo-urgente);
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-toggle-alerta:hover {
+  background: rgba(220, 53, 69, 0.24);
+}
+
+.alerta-lista {
+  border-top: 1px solid rgba(220, 53, 69, 0.3);
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.alerta-item {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  transition: all 0.15s;
+}
+
+.alerta-item:hover {
+  background: rgba(255,255,255,0.06);
+}
+
+.alerta-item-info { flex: 1; min-width: 0; }
+.alerta-item-titulo { font-size: 0.9rem; font-weight: 500; color: var(--text); }
+.alerta-item-meta { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
+.alerta-item-tiempo {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--rojo-urgente);
+  white-space: nowrap;
+}
+
+/* ============================================================================
+   CARDS GENERALES
+   ============================================================================ */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.section-title-h2 {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 500;
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+
+.rango-label {
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  text-transform: lowercase;
+  margin-left: 6px;
+}
+
+.card-badge {
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.empty-state {
+  padding: var(--sp-5);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+/* ============================================================================
+   TABLERO DE TÉCNICOS
+   ============================================================================ */
+.tecnicos-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1px;
+  background: var(--border);
+}
+
+.tecnico-card {
+  background: var(--bg-card);
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  cursor: default;
+  transition: background 0.15s;
+}
+
+.tecnico-card.tec-trabajando { border-left: 3px solid var(--azul-claro); padding-left: calc(var(--sp-4) - 3px); }
+.tecnico-card.tec-pausado { border-left: 3px solid var(--amarillo); padding-left: calc(var(--sp-4) - 3px); }
+.tecnico-card.tec-libre { opacity: 0.7; }
+
+.tecnico-status {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tecnico-status.status-trabajando { background: var(--verde-ok); box-shadow: 0 0 8px rgba(40, 167, 69, 0.5); }
+.tecnico-status.status-pausado { background: var(--amarillo); }
+.tecnico-status.status-libre { background: rgba(255,255,255,0.2); }
+
+.tecnico-info { flex: 1; min-width: 0; }
+
+.tecnico-nombre {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.tecnico-actividad {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tecnico-tiempo {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--azul-claro);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================================
+   PRODUCTIVIDAD
+   ============================================================================ */
+.productividad-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.prod-row {
+  display: grid;
+  grid-template-columns: 1.5fr 80px 100px 100px 100px;
+  gap: var(--sp-2);
+  align-items: center;
+  padding: 10px var(--sp-4);
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.prod-header {
+  background: rgba(255,255,255,0.03);
+  border-top: none;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.prod-tecnico { font-weight: 500; }
+
+.prod-numero { font-family: var(--font-mono); font-weight: 500; text-align: right; }
+
+.prod-eficiencia { text-align: right; }
+
+.prod-eficiencia.eficiente { color: var(--verde-ok); font-weight: 500; }
+.prod-eficiencia.normal { color: var(--text); }
+.prod-eficiencia.lento { color: var(--amarillo); }
+.prod-eficiencia.muy-lento { color: var(--rojo-urgente); }
+
+@media (max-width: 700px) {
+  .prod-row {
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    gap: 4px;
+  }
+  .prod-tecnico { grid-column: 1; grid-row: 1; }
+  .prod-numero:nth-of-type(2) { display: none; }
+  .prod-numero:nth-of-type(3) { grid-column: 2; grid-row: 1; }
+  .prod-numero:nth-of-type(4) { display: none; }
+  .prod-eficiencia { grid-column: 1 / -1; grid-row: 2; text-align: left; font-size: 0.78rem; }
+  .prod-header { display: none; }
+}
+
+/* ============================================================================
+   CANCELACIONES
+   ============================================================================ */
+.cancelaciones-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.canc-row {
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-start;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.canc-row:hover { background: rgba(255,255,255,0.02); }
+
+.canc-icon {
+  color: var(--rojo-urgente);
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.canc-info { flex: 1; min-width: 0; }
+
+.canc-titulo {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.canc-motivo {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-style: italic;
+}
+
+.canc-meta {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+@media (max-width: 600px) {
+  .rango-bar { padding: var(--sp-2); }
+  .rango-tab { font-size: 0.78rem; padding: 6px 12px; }
+  .tecnicos-list { grid-template-columns: 1fr; }
+}
