@@ -310,7 +310,8 @@ const Jefe = {
     this.state.prioridad = 'normal';
 
     document.getElementById('form-nueva-orden').reset();
-    document.getElementById('vehiculo-info').value = '';
+    // Marca y modelo: deshabilitados por defecto, se habilitan si la placa es nueva
+    this.deshabilitarVehiculoCampos();
     document.getElementById('placa-hint').textContent = 'Digita la placa';
     document.getElementById('placa-hint').style.color = '';
     document.getElementById('form-error').hidden = true;
@@ -332,7 +333,9 @@ const Jefe = {
   async buscarVehiculo() {
     const placa = document.getElementById('placa').value.trim().toUpperCase();
     if (!placa) {
-      document.getElementById('vehiculo-info').value = '';
+      document.getElementById('marca').value = '';
+      document.getElementById('modelo').value = '';
+      this.deshabilitarVehiculoCampos();
       return;
     }
 
@@ -354,8 +357,11 @@ const Jefe = {
         this.state.vehiculos[placa] = data;
         this.aplicarVehiculo(data);
       } else {
-        document.getElementById('vehiculo-info').value = '';
-        document.getElementById('placa-hint').textContent = 'Vehículo nuevo (se creará al guardar)';
+        // Vehículo nuevo: habilitar marca y modelo para que el jefe los digite
+        document.getElementById('marca').value = '';
+        document.getElementById('modelo').value = '';
+        this.habilitarVehiculoCampos();
+        document.getElementById('placa-hint').textContent = 'Vehículo nuevo (digita marca y modelo)';
         document.getElementById('placa-hint').style.color = 'var(--amarillo)';
       }
     } catch (err) {
@@ -364,12 +370,36 @@ const Jefe = {
   },
 
   aplicarVehiculo(v) {
-    document.getElementById('vehiculo-info').value = `${v.marca} ${v.modelo}${v.anio ? ' ' + v.anio : ''}`;
+    document.getElementById('marca').value = v.marca || '';
+    document.getElementById('modelo').value = `${v.modelo || ''}${v.anio ? ' ' + v.anio : ''}`.trim();
+    this.deshabilitarVehiculoCampos();
     document.getElementById('placa-hint').textContent = `KM GPS actual: ${v.km_gps_actual || 0}`;
     document.getElementById('placa-hint').style.color = 'var(--text-dim)';
     if (v.km_gps_actual && !document.getElementById('km-ingreso').value) {
       document.getElementById('km-ingreso').value = v.km_gps_actual;
     }
+  },
+
+  habilitarVehiculoCampos() {
+    const marca = document.getElementById('marca');
+    const modelo = document.getElementById('modelo');
+    marca.disabled = false;
+    modelo.disabled = false;
+    marca.classList.remove('field-disabled');
+    modelo.classList.remove('field-disabled');
+    marca.required = true;
+    modelo.required = true;
+  },
+
+  deshabilitarVehiculoCampos() {
+    const marca = document.getElementById('marca');
+    const modelo = document.getElementById('modelo');
+    marca.disabled = true;
+    modelo.disabled = true;
+    marca.classList.add('field-disabled');
+    modelo.classList.add('field-disabled');
+    marca.required = false;
+    modelo.required = false;
   },
 
   // ==================== CATEGORÍAS Y SERVICIOS ====================
@@ -493,16 +523,43 @@ const Jefe = {
     try {
       // Si el vehículo no existe, crearlo
       if (!this.state.vehiculos[placa]) {
-        const info = document.getElementById('vehiculo-info').value.trim();
-        let marca = 'Sin definir', modelo = 'Sin definir';
-        if (info && info !== '—') {
-          const parts = info.split(' ');
-          marca = parts[0] || 'Sin definir';
-          modelo = parts.slice(1).join(' ') || 'Sin definir';
+        const marca = document.getElementById('marca').value.trim().toUpperCase();
+        const modeloRaw = document.getElementById('modelo').value.trim().toUpperCase();
+
+        // Validar antes del insert
+        if (!marca) {
+          btn.disabled = false;
+          btn.textContent = 'Crear orden';
+          return this.errorForm('La marca es obligatoria para vehículos nuevos.');
         }
+        if (!modeloRaw) {
+          btn.disabled = false;
+          btn.textContent = 'Crear orden';
+          return this.errorForm('El modelo es obligatorio para vehículos nuevos.');
+        }
+
+        // Extraer año si viene al final del modelo (ej: "CIVIC 2020" → modelo="CIVIC", anio=2020)
+        let modelo = modeloRaw;
+        let anio = null;
+        const yearMatch = modeloRaw.match(/^(.+?)\s+((?:19|20)\d{2})\s*$/);
+        if (yearMatch) {
+          modelo = yearMatch[1].trim();
+          anio = parseInt(yearMatch[2], 10);
+        }
+
+        const insertData = {
+          placa,
+          marca,
+          modelo,
+          km_gps_actual: km,
+          fecha_ultimo_km_gps: new Date().toISOString(),
+          activo: true,
+        };
+        if (anio) insertData.anio = anio;
+
         const { error: vErr } = await supabaseClient
           .from('vehiculos')
-          .insert({ placa, marca, modelo, km_gps_actual: km, fecha_ultimo_km_gps: new Date().toISOString(), activo: true });
+          .insert(insertData);
         if (vErr) throw vErr;
       }
 
