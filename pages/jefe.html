@@ -45,6 +45,19 @@
     </div>
   </section>
 
+  <!-- Alertas de mantenimiento KM -->
+  <section id="alertas-mtto-section" class="alertas-mtto-section" hidden>
+    <div class="alertas-mtto-header">
+      <span class="alertas-mtto-icon" id="alertas-mtto-icon">🔴</span>
+      <div class="alertas-mtto-content">
+        <div class="alertas-mtto-title">Alertas de mantenimiento</div>
+        <div class="alertas-mtto-desc" id="alertas-mtto-desc">—</div>
+      </div>
+      <button class="alertas-mtto-toggle" id="alertas-mtto-toggle">Ver</button>
+    </div>
+    <div class="alertas-mtto-lista" id="alertas-mtto-lista" hidden></div>
+  </section>
+
   <section class="actions-bar">
     <div class="tabs">
       <button class="tab tab-active" data-tab="activas">Activas <span id="count-activas">0</span></button>
@@ -190,6 +203,137 @@
       </form>
     </div>
   </div>
+
+  <style>
+    /* ===== Alertas de mantenimiento KM (Fase 4b) ===== */
+    .alertas-mtto-section {
+      background: rgba(220, 53, 69, 0.08);
+      border: 1px solid rgba(220, 53, 69, 0.3);
+      border-radius: var(--r-md);
+      margin: var(--sp-3) 0;
+      overflow: hidden;
+    }
+    .alertas-mtto-header {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-3);
+      padding: var(--sp-3);
+    }
+    .alertas-mtto-icon {
+      font-size: 1.5rem;
+    }
+    .alertas-mtto-content {
+      flex: 1;
+    }
+    .alertas-mtto-title {
+      font-weight: 600;
+      color: var(--text);
+    }
+    .alertas-mtto-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .alertas-mtto-toggle {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 14px;
+      border-radius: var(--r-sm);
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .alertas-mtto-toggle:hover {
+      background: rgba(255,255,255,0.14);
+    }
+    .alertas-mtto-lista {
+      border-top: 1px solid rgba(220, 53, 69, 0.2);
+      padding: var(--sp-2) 0;
+    }
+    .alerta-mtto-row {
+      display: grid;
+      grid-template-columns: 16px minmax(120px, 1fr) 2fr auto;
+      gap: var(--sp-3);
+      align-items: center;
+      padding: var(--sp-2) var(--sp-3);
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .alerta-mtto-row:last-child { border-bottom: none; }
+    .alerta-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .alerta-dot-rojo { background: var(--rojo-urgente); }
+    .alerta-dot-amarillo { background: var(--amarillo); }
+    .alerta-row-placa {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--text);
+    }
+    .alerta-row-vehiculo {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+    .alerta-row-servicios {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .alerta-serv {
+      font-size: 0.75rem;
+      padding: 3px 8px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+    .alerta-serv small {
+      font-family: var(--font-mono);
+      opacity: 0.75;
+      margin-left: 4px;
+    }
+    .alerta-serv-vencido {
+      background: rgba(220, 53, 69, 0.18);
+      color: var(--rojo-urgente);
+    }
+    .alerta-serv-proximo {
+      background: rgba(255, 193, 7, 0.18);
+      color: var(--amarillo);
+    }
+    .alerta-gps-viejo {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-left: 6px;
+    }
+    .btn-crear-mtto {
+      background: var(--azul);
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: var(--r-sm);
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .btn-crear-mtto:hover {
+      background: var(--azul-claro);
+    }
+    @media (max-width: 700px) {
+      .alerta-mtto-row {
+        grid-template-columns: 12px 1fr;
+        grid-template-rows: auto auto;
+      }
+      .alerta-row-servicios {
+        grid-column: 2 / -1;
+        grid-row: 2;
+      }
+      .btn-crear-mtto {
+        grid-column: 2 / -1;
+        justify-self: end;
+        grid-row: 3;
+      }
+    }
+  </style>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../js/config.js"></script>
