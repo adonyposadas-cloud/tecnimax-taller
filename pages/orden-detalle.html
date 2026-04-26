@@ -1,70 +1,549 @@
--- ============================================================================
--- TECNIMAX TALLER — Fase 5a: Grupos de WhatsApp
--- ============================================================================
--- Tabla para guardar los invite-links de los grupos de WhatsApp del taller.
--- Los técnicos usarán estos links para abrir el grupo correcto y pegar el
--- mensaje pre-armado (que la app ya copió al portapapeles).
---
--- IMPORTANTE: Si un link deja de funcionar (caducó o fue regenerado por el
--- admin del grupo), regenera el link en WhatsApp y actualízalo aquí con:
---   UPDATE grupos_whatsapp SET invite_link = 'NUEVO_LINK' WHERE codigo = 'compras';
--- ============================================================================
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0F2F4A" />
+  <title>Detalle de orden — TECNIMAX Taller</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="../icons/favicon-32.png" />
+  <link rel="manifest" href="../manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/styles.css" />
+  <link rel="stylesheet" href="../css/orden-detalle.css" />
+</head>
+<body class="app-body">
+  <div class="bg-decoration" aria-hidden="true">
+    <div class="bg-gradient"></div>
+    <div class="bg-grid"></div>
+  </div>
 
-BEGIN;
+  <header class="app-header">
+    <button class="btn-back" id="btn-back">← Volver</button>
+    <div class="app-brand-mini" id="orden-titulo">Cargando...</div>
+    <button id="btn-logout" class="btn-logout">Salir</button>
+  </header>
 
--- ============================================================================
--- 1. TABLA grupos_whatsapp
--- ============================================================================
-CREATE TABLE IF NOT EXISTS grupos_whatsapp (
-  id SERIAL PRIMARY KEY,
-  codigo TEXT NOT NULL UNIQUE,        -- identificador interno (ej: 'compras')
-  nombre TEXT NOT NULL,                -- nombre visible (ej: 'Grupo de Compras')
-  invite_link TEXT NOT NULL,           -- URL de invitación
-  activo BOOLEAN NOT NULL DEFAULT true,
-  creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+  <main class="detalle-main">
 
-COMMENT ON TABLE grupos_whatsapp IS
-  'Grupos de WhatsApp del taller para notificaciones desde la app.';
+    <div id="loading" class="loading-state">
+      <p>Cargando orden...</p>
+    </div>
 
--- ============================================================================
--- 2. POBLAR LOS 3 GRUPOS
--- ============================================================================
-INSERT INTO grupos_whatsapp (codigo, nombre, invite_link) VALUES
-  ('compras',  'Grupo de Compras',  'https://chat.whatsapp.com/FlMHlxwPqSD3ZekcJ5M8ch?mode=gi_t'),
-  ('jefes',    'Grupo de Jefes',    'https://chat.whatsapp.com/IlG9qFQE1dQ90fAQI8wZph?mode=gi_t'),
-  ('tecnicos', 'Grupo de Técnicos', 'https://chat.whatsapp.com/CNGyZ9iM9mXA5PeHHYNL2v?mode=gi_t')
-ON CONFLICT (codigo) DO UPDATE SET
-  invite_link = EXCLUDED.invite_link,
-  nombre = EXCLUDED.nombre,
-  actualizado_en = NOW();
+    <div id="error-state" class="error-state" hidden>
+      <p id="error-msg-text">Orden no encontrada.</p>
+      <button class="btn-secondary" onclick="history.back()">Volver</button>
+    </div>
 
--- ============================================================================
--- 3. POLÍTICAS RLS
--- ============================================================================
-ALTER TABLE grupos_whatsapp ENABLE ROW LEVEL SECURITY;
+    <div id="orden-content" hidden>
 
--- Lectura: cualquier usuario autenticado (técnico, jefe, admin)
-DROP POLICY IF EXISTS pol_grupos_whatsapp_select ON grupos_whatsapp;
-CREATE POLICY pol_grupos_whatsapp_select ON grupos_whatsapp
-  FOR SELECT
-  TO authenticated
-  USING (true);
+      <!-- Banner informativo: solo se muestra si el técnico tiene servicios activos en ESTA orden -->
+      <section id="banner-info" class="banner-info" hidden>
+        <div class="banner-info-content">
+          <div class="banner-info-label">TUS SERVICIOS ACTIVOS</div>
+          <div class="banner-info-stats" id="banner-stats">—</div>
+        </div>
+        <div class="banner-info-action">
+          <button id="btn-agregar-trabajo" class="btn-add-work" hidden>
+            + Agregar a este trabajo
+          </button>
+          <button id="btn-agregar-catalogo-tec" class="btn-add-work btn-add-catalogo" hidden>
+            + Servicio nuevo
+          </button>
+        </div>
+      </section>
 
--- Escritura: solo jefe/admin (asume función auth_es_jefe_o_admin existe)
-DROP POLICY IF EXISTS pol_grupos_whatsapp_write ON grupos_whatsapp;
-CREATE POLICY pol_grupos_whatsapp_write ON grupos_whatsapp
-  FOR ALL
-  TO authenticated
-  USING (auth_es_jefe_o_admin())
-  WITH CHECK (auth_es_jefe_o_admin());
+      <!-- Panel de acciones del Jefe / Admin -->
+      <section id="panel-jefe" class="panel-jefe" hidden>
+        <div class="panel-jefe-label">ACCIONES DE GESTIÓN</div>
+        <div class="panel-jefe-actions">
+          <button id="btn-cambiar-prioridad" class="btn-jefe-action">
+            <span>↕</span> Cambiar prioridad
+          </button>
+          <button id="btn-agregar-servicio-jefe" class="btn-jefe-action" hidden>
+            <span>+</span> Agregar servicio
+          </button>
+          <button id="btn-cancelar-orden" class="btn-jefe-action btn-jefe-danger">
+            <span>✗</span> Cancelar orden
+          </button>
+        </div>
+      </section>
 
-COMMIT;
+      <!-- Tarjeta principal -->
+      <section class="card card-collapsible" id="card-info">
+        <div class="card-header card-header-clickable" id="card-header-toggle">
+          <div class="vehiculo-info">
+            <div class="placa-grande" id="placa-grande">—</div>
+            <div class="vehiculo-meta" id="vehiculo-meta">—</div>
+          </div>
+          <div class="orden-meta">
+            <span class="badge" id="badge-prioridad">—</span>
+            <span class="badge" id="badge-estado">—</span>
+          </div>
+          <div class="card-toggle-icon" id="card-toggle-icon">▼</div>
+        </div>
 
--- ============================================================================
--- VERIFICACIÓN
--- ============================================================================
--- SELECT * FROM grupos_whatsapp ORDER BY codigo;
--- Debe devolver 3 filas: compras, jefes, tecnicos.
--- ============================================================================
+        <div class="card-body card-body-collapsible" id="card-body-info" hidden>
+          <div class="info-grid">
+            <div class="info-item">
+              <div class="info-label">N° Orden</div>
+              <div class="info-value" id="num-orden">—</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">KM ingreso</div>
+              <div class="info-value" id="km-ingreso">—</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Creada</div>
+              <div class="info-value" id="creada-en">—</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Por</div>
+              <div class="info-value" id="creada-por">—</div>
+            </div>
+          </div>
+
+          <div class="info-block">
+            <div class="info-label">Motivo</div>
+            <div class="info-text" id="motivo">—</div>
+          </div>
+
+          <div class="info-block" id="problema-block">
+            <div class="info-label">Problema reportado</div>
+            <div class="info-text" id="problema">—</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Servicios -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="section-title-h2">Servicios a realizar</h2>
+          <span class="servicios-progress" id="servicios-progress">0/0</span>
+        </div>
+
+        <div id="servicios-list" class="servicios-list"></div>
+      </section>
+
+    </div>
+
+  </main>
+
+  <!-- ============= MODAL EMPEZAR ============= -->
+  <div id="modal-empezar" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Empezar trabajo</h2>
+      </header>
+      <div class="modal-body">
+        <p class="modal-desc">Vas a empezar este servicio:</p>
+        <div id="empezar-resumen" class="resumen-box"></div>
+        <p class="modal-warn" id="empezar-warn" hidden></p>
+        <div id="empezar-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-empezar">Cancelar</button>
+        <button type="button" class="btn-start" id="btn-confirmar-empezar">EMPEZAR</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL PAUSAR ============= -->
+  <div id="modal-pausar" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Pausar servicio</h2>
+      </header>
+      <div class="modal-body">
+        <div id="pausar-resumen" class="resumen-box"></div>
+        <div class="field">
+          <label>Motivo de la pausa <span class="required">*</span></label>
+          <div class="motivo-grid">
+            <button type="button" class="motivo-btn" data-motivo="repuesto">
+              <span class="motivo-icon">📦</span>
+              <span>Falta repuesto</span>
+            </button>
+            <button type="button" class="motivo-btn" data-motivo="cambio_unidad">
+              <span class="motivo-icon">🔧</span>
+              <span>Cambio de unidad</span>
+            </button>
+            <button type="button" class="motivo-btn" data-motivo="personal">
+              <span class="motivo-icon">⏱</span>
+              <span>Personal</span>
+            </button>
+          </div>
+        </div>
+        <div class="field" id="campo-detalle" hidden>
+          <label for="pausa-detalle">Detalle del repuesto</label>
+          <textarea id="pausa-detalle" class="field-input field-textarea" placeholder="¿Qué repuesto se necesita?"></textarea>
+        </div>
+        <div id="pausa-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-pausar">Cancelar</button>
+        <button type="button" class="btn-pause" id="btn-confirmar-pausar" disabled>PAUSAR</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL TERMINAR ============= -->
+  <div id="modal-terminar" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Terminar servicio</h2>
+      </header>
+      <div class="modal-body">
+        <div id="terminar-resumen" class="resumen-box"></div>
+        <div class="field">
+          <label for="terminar-observacion">Observación (opcional)</label>
+          <textarea id="terminar-observacion" class="field-input field-textarea" placeholder="Resultado, hallazgos, recomendaciones..."></textarea>
+        </div>
+        <div id="terminar-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-terminar">Cancelar</button>
+        <button type="button" class="btn-stop" id="btn-confirmar-terminar">Terminar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL AGREGAR ============= -->
+  <div id="modal-agregar" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Agregar servicio al trabajo</h2>
+      </header>
+      <div class="modal-body">
+        <p class="modal-desc">Selecciona los servicios pendientes que vas a hacer al mismo tiempo:</p>
+        <div id="agregar-list" class="agregar-list"></div>
+        <div id="agregar-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-agregar">Cancelar</button>
+        <button type="button" class="btn-primary-action" id="btn-confirmar-agregar" disabled>Agregar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL CAMBIAR PRIORIDAD (Jefe) ============= -->
+  <div id="modal-prioridad" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Cambiar prioridad</h2>
+      </header>
+      <div class="modal-body">
+        <p class="modal-desc">Selecciona la nueva prioridad para esta orden:</p>
+        <div class="prio-grid">
+          <button type="button" class="prio-option" data-prio="normal">
+            <div class="prio-option-title">Normal</div>
+            <div class="prio-option-desc">Atención según orden de llegada</div>
+          </button>
+          <button type="button" class="prio-option" data-prio="urgente">
+            <div class="prio-option-title">Urgente</div>
+            <div class="prio-option-desc">Atención prioritaria</div>
+          </button>
+        </div>
+        <div id="prioridad-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-prioridad">Cancelar</button>
+        <button type="button" class="btn-primary-action" id="btn-confirmar-prioridad" disabled>Confirmar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL CANCELAR ORDEN (Jefe) ============= -->
+  <div id="modal-cancelar-orden" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Cancelar orden</h2>
+      </header>
+      <div class="modal-body">
+        <div class="modal-warn" style="margin-bottom: 12px;">
+          ⚠️ Esta acción marcará la orden y todos sus servicios pendientes como cancelados.
+          Los servicios completados se mantienen en el histórico.
+        </div>
+        <div class="field">
+          <label for="cancelar-motivo">Motivo de la cancelación <span class="required">*</span></label>
+          <textarea id="cancelar-motivo" class="field-input field-textarea"
+            placeholder="¿Por qué se cancela? (cliente cambió de opinión, vehículo no apto, etc.)"></textarea>
+        </div>
+        <div id="cancelar-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cerrar-cancelar">No, mantener</button>
+        <button type="button" class="btn-stop" id="btn-confirmar-cancelar">Sí, cancelar orden</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL REASIGNAR TÉCNICO (Jefe) ============= -->
+  <div id="modal-reasignar" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Reasignar técnico</h2>
+      </header>
+      <div class="modal-body">
+        <div id="reasignar-resumen" class="resumen-box"></div>
+        <p class="modal-desc">Selecciona el nuevo técnico:</p>
+        <div id="reasignar-tecnicos" class="reasignar-list"></div>
+        <div class="modal-warn" style="margin-top: 12px;">
+          ℹ️ Al reasignar, el servicio quedará <strong>pausado</strong> con motivo "Reasignación".
+          El nuevo técnico decide cuándo reanudar.
+        </div>
+        <div id="reasignar-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-reasignar">Cancelar</button>
+        <button type="button" class="btn-primary-action" id="btn-confirmar-reasignar" disabled>Reasignar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL AGREGAR SERVICIO (Jefe) ============= -->
+  <div id="modal-agregar-jefe" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+      <header class="modal-header">
+        <h2 class="modal-title">Agregar servicios a esta orden</h2>
+      </header>
+      <div class="modal-body">
+        <div class="categorias-chips" id="agregar-jefe-cats"></div>
+        <div class="servicios-grid" id="agregar-jefe-grid"></div>
+        <div id="agregar-jefe-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <span class="footer-info" id="agregar-jefe-counter">0 seleccionados</span>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn-secondary" id="btn-cancelar-agregar-jefe">Cancelar</button>
+          <button type="button" class="btn-primary-action" id="btn-confirmar-agregar-jefe" disabled>Agregar</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <style>
+    /* ===== Banner alertas mantenimiento (Fase 4b) ===== */
+    .banner-alertas-mtto {
+      background: rgba(220, 53, 69, 0.10);
+      border: 1px solid rgba(220, 53, 69, 0.35);
+      border-radius: var(--r-md);
+      padding: var(--sp-3);
+      margin-bottom: var(--sp-3);
+    }
+    .banner-alertas-header {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-3);
+      margin-bottom: var(--sp-2);
+    }
+    .banner-alertas-icon { font-size: 1.5rem; }
+    .banner-alertas-titulo {
+      font-weight: 600;
+      color: var(--text);
+    }
+    .banner-alertas-subtitulo {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    .mtto-list {
+      list-style: none;
+      padding: 0;
+      margin: var(--sp-2) 0;
+    }
+    .mtto-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      margin-bottom: 4px;
+      border-radius: var(--r-sm);
+      font-size: 0.9rem;
+    }
+    .mtto-item.mtto-vencido {
+      background: rgba(220, 53, 69, 0.12);
+      border-left: 3px solid var(--rojo-urgente);
+    }
+    .mtto-item.mtto-proximo {
+      background: rgba(255, 193, 7, 0.10);
+      border-left: 3px solid var(--amarillo);
+    }
+    .mtto-item-nombre {
+      color: var(--text);
+      font-weight: 500;
+    }
+    .mtto-item-detalle {
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+    .banner-alertas-footer {
+      margin-top: var(--sp-2);
+      text-align: right;
+    }
+    .btn-agregar-alertas {
+      background: var(--azul);
+      color: white;
+      border: none;
+      padding: 8px 14px;
+      border-radius: var(--r-sm);
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+    .btn-agregar-alertas:hover {
+      background: var(--azul-claro);
+    }
+    .mtto-hint {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+  </style>
+
+  <!-- ============= TOAST WHATSAPP (Fase 5b) ============= -->
+  <div id="wa-toast" class="wa-toast" hidden>
+    <div class="wa-toast-card">
+      <div class="wa-toast-header">
+        <span class="wa-toast-icon">💬</span>
+        <div class="wa-toast-titulo" id="wa-toast-titulo">Avisar al grupo</div>
+        <button class="wa-toast-close" id="wa-toast-close" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="wa-toast-mensaje" id="wa-toast-mensaje">—</div>
+      <div class="wa-toast-hint" id="wa-toast-hint" hidden>
+        ✅ Mensaje copiado. Pégalo en el grupo y envía.
+      </div>
+      <div class="wa-toast-actions">
+        <button class="wa-toast-btn-secundario" id="wa-toast-cerrar">Más tarde</button>
+        <button class="wa-toast-btn-primario" id="wa-toast-avisar">📱 Avisar ahora</button>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    /* ===== Toast WhatsApp (Fase 5b) ===== */
+    .wa-toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 9999;
+      max-width: 460px;
+      width: calc(100% - 32px);
+      animation: wa-slide-up 0.25s ease-out;
+    }
+    @keyframes wa-slide-up {
+      from { opacity: 0; transform: translateX(-50%) translateY(30px); }
+      to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+    .wa-toast.cerrando {
+      animation: wa-slide-down 0.2s ease-in forwards;
+    }
+    @keyframes wa-slide-down {
+      to { opacity: 0; transform: translateX(-50%) translateY(30px); }
+    }
+    .wa-toast-card {
+      background: #1a3a5e;
+      border: 1px solid rgba(37, 211, 102, 0.4);
+      border-radius: var(--r-md);
+      padding: var(--sp-3);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    .wa-toast-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .wa-toast-icon { font-size: 1.4rem; }
+    .wa-toast-titulo {
+      flex: 1;
+      font-weight: 600;
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    .wa-toast-close {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 1.1rem;
+      padding: 4px 8px;
+    }
+    .wa-toast-close:hover { color: var(--text); }
+    .wa-toast-mensaje {
+      background: rgba(0,0,0,0.25);
+      border-radius: var(--r-sm);
+      padding: 8px 10px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      max-height: 90px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      font-family: var(--font-mono);
+      margin-bottom: 8px;
+      line-height: 1.4;
+    }
+    .wa-toast-hint {
+      font-size: 0.78rem;
+      color: #25d366;
+      padding: 6px 10px;
+      background: rgba(37, 211, 102, 0.10);
+      border-radius: var(--r-sm);
+      margin-bottom: 8px;
+    }
+    .wa-toast-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .wa-toast-btn-secundario {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 8px 14px;
+      border-radius: var(--r-sm);
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .wa-toast-btn-secundario:hover {
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+    }
+    .wa-toast-btn-primario {
+      background: #25d366;
+      color: white;
+      border: none;
+      padding: 8px 14px;
+      border-radius: var(--r-sm);
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+    .wa-toast-btn-primario:hover { background: #1fb555; }
+    .wa-toast-btn-primario:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    @media (max-width: 480px) {
+      .wa-toast { bottom: 12px; }
+      .wa-toast-mensaje { max-height: 70px; font-size: 0.75rem; }
+    }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/config.js"></script>
+  <script src="../js/supabase-client.js"></script>
+  <script src="../js/utils.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/orden-detalle.js"></script>
+</body>
+</html>
