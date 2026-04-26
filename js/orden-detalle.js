@@ -712,12 +712,34 @@ const OrdenDetalle = {
       const ahora = new Date().toISOString();
 
       // 1. Cerrar la pausa abierta de este servicio
-      const { error: pErr } = await supabaseClient
+      // CRÍTICO: validar que el UPDATE realmente afectó filas
+      const { data: pausasActualizadas, error: pErr } = await supabaseClient
         .from('historial_pausas')
         .update({ hora_reanudacion: ahora })
         .eq('servicio_orden_id', sid)
-        .is('hora_reanudacion', null);
+        .is('hora_reanudacion', null)
+        .select('id, hora_pausa, hora_reanudacion');
+
       if (pErr) throw pErr;
+
+      // Si NO se cerró ninguna pausa, NO continuar (evita bug de tiempo mal calculado)
+      if (!pausasActualizadas || pausasActualizadas.length === 0) {
+        // Buscar si hay pausa abierta
+        const { data: pausaCheck } = await supabaseClient
+          .from('historial_pausas')
+          .select('id, motivo, tecnico_id')
+          .eq('servicio_orden_id', sid)
+          .is('hora_reanudacion', null);
+
+        if (pausaCheck && pausaCheck.length > 0) {
+          // Hay pausa pero no se pudo cerrar → bug de permisos
+          throw new Error('No se pudo cerrar la pausa. Permisos insuficientes. Avisa al jefe.');
+        }
+        // No hay pausa abierta, raro pero seguir
+        Utils.log('Reanudar: no había pausa abierta para cerrar.');
+      } else {
+        Utils.log('Reanudar: pausa cerrada correctamente:', pausasActualizadas[0].id);
+      }
 
       // 2. Cambiar estado del servicio
       const { error: sErr } = await supabaseClient
@@ -768,13 +790,30 @@ const OrdenDetalle = {
     try {
       const ahora = new Date().toISOString();
 
-      // Si está pausado, primero cerrar la pausa abierta
+      // Si está pausado, primero cerrar la pausa abierta CON validación
       if (s.estado === 'pausado') {
-        await supabaseClient
+        const { data: pausasCerradas, error: pErr } = await supabaseClient
           .from('historial_pausas')
           .update({ hora_reanudacion: ahora })
           .eq('servicio_orden_id', sid)
-          .is('hora_reanudacion', null);
+          .is('hora_reanudacion', null)
+          .select('id');
+
+        if (pErr) throw pErr;
+
+        if (!pausasCerradas || pausasCerradas.length === 0) {
+          // Verificar si había pausa que no se pudo cerrar
+          const { data: pausaCheck } = await supabaseClient
+            .from('historial_pausas')
+            .select('id')
+            .eq('servicio_orden_id', sid)
+            .is('hora_reanudacion', null);
+
+          if (pausaCheck && pausaCheck.length > 0) {
+            throw new Error('No se pudo cerrar la pausa abierta. El tiempo se calcularía mal. Avisa al jefe.');
+          }
+        }
+
         // Refrescar pausas para el cálculo
         await this.cargarPausas();
       }
