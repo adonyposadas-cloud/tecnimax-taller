@@ -177,18 +177,26 @@ const Tecnico = {
     const list = document.getElementById('vehiculos-list');
     const count = document.getElementById('vehiculos-count');
 
-    // Ordenar: urgentes primero, luego mías, luego por fecha desc
+    // Ordenar:
+    //   1. Urgentes primero (ajenas o no, urgencia manda)
+    //   2. Mis órdenes con servicio en_progreso
+    //   3. Mis órdenes con servicio pausado
+    //   4. Resto, por fecha desc
     const userId = this.state.profile.id;
     const ords = [...this.state.ordenes].sort((a, b) => {
       // 1. Urgentes primero
       if (a.prioridad !== b.prioridad) {
         return a.prioridad === 'urgente' ? -1 : 1;
       }
-      // 2. Las que tengo en progreso primero
-      const aMia = (a.servicios_orden || []).some(s => s.tecnico_id === userId && s.estado === 'en_progreso');
-      const bMia = (b.servicios_orden || []).some(s => s.tecnico_id === userId && s.estado === 'en_progreso');
-      if (aMia !== bMia) return aMia ? -1 : 1;
-      // 3. Fecha desc
+      // 2. Mis en_progreso
+      const aMiaProgreso = (a.servicios_orden || []).some(s => s.tecnico_id === userId && s.estado === 'en_progreso');
+      const bMiaProgreso = (b.servicios_orden || []).some(s => s.tecnico_id === userId && s.estado === 'en_progreso');
+      if (aMiaProgreso !== bMiaProgreso) return aMiaProgreso ? -1 : 1;
+      // 3. Mis pausados
+      const aMiaPausada = (a.servicios_orden || []).some(s => s.tecnico_id === userId && s.estado === 'pausado');
+      const bMiaPausada = (b.servicios_orden || []).some(s => s.tecnico_id === userId && s.estado === 'pausado');
+      if (aMiaPausada !== bMiaPausada) return aMiaPausada ? -1 : 1;
+      // 4. Fecha desc
       return new Date(b.creada_en) - new Date(a.creada_en);
     });
 
@@ -239,20 +247,32 @@ const Tecnico = {
     let cardClass = 'vehiculo-card';
     if (orden.prioridad === 'urgente') cardClass += ' card-urgente';
     if (estadoMia) cardClass += ' card-mio';
+    // Orden trabajada por otro técnico (y no por mí) → atenuar
+    if (otroEnProgreso && !estadoMia) cardClass += ' card-otro';
 
     let badgeHtml = orden.prioridad === 'urgente'
       ? '<span class="badge-mini badge-urgente">Urgente</span>'
       : '<span class="badge-mini badge-normal">Normal</span>';
 
+    // Contador completados/total con colores semánticos:
+    //   verde = completados, rojo = total
+    // Se muestra siempre que la orden tenga servicios (incluso 0/N).
+    const contadorHtml = total > 0
+      ? `<span class="contador-completados">${completados}</span><span class="contador-sep">/</span><span class="contador-total">${total}</span>`
+      : '';
+
     let statusHtml = '';
     if (estadoMia) {
       statusHtml = '<div class="card-status status-mio">▶ Tú estás trabajando aquí</div>';
     } else if (otroEnProgreso) {
-      statusHtml = `<div class="card-status status-asignado">Otro técnico trabajando · ${completados}/${total}</div>`;
+      statusHtml = `<div class="card-status status-asignado">Otro técnico trabajando · ${contadorHtml}</div>`;
     } else if (algunaPendiente && completados === 0) {
-      statusHtml = '<div class="card-status status-libre">Sin asignar · Disponible</div>';
+      statusHtml = `<div class="card-status status-libre">Sin asignar · Disponible · ${contadorHtml} servicios</div>`;
     } else if (completados < total) {
-      statusHtml = `<div class="card-status status-asignado">${completados}/${total} servicios</div>`;
+      statusHtml = `<div class="card-status status-asignado">${contadorHtml} servicios</div>`;
+    } else if (total > 0) {
+      // Por si acaso: todos completados pero la orden aún no se cerró
+      statusHtml = `<div class="card-status status-asignado">${contadorHtml} servicios</div>`;
     }
 
     return `
