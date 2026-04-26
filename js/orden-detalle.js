@@ -259,6 +259,7 @@ const OrdenDetalle = {
     const userId = this.state.profile.id;
     const banner = document.getElementById('banner-info');
     const btnAdd = document.getElementById('btn-agregar-trabajo');
+    const btnAddCatalogo = document.getElementById('btn-agregar-catalogo-tec');
 
     if (this.state.profile.rol !== 'tecnico') {
       banner.hidden = true;
@@ -293,6 +294,10 @@ const OrdenDetalle = {
 
     const hayPendientes = this.state.servicios.some(s => s.estado === 'pendiente');
     btnAdd.hidden = !(hayPendientes && enCurso.length > 0);
+
+    // Botón "Servicio nuevo" siempre visible si tiene trabajo activo y la orden está abierta o en proceso
+    const ordenEditable = this.state.orden && (this.state.orden.estado === 'abierta' || this.state.orden.estado === 'en_progreso');
+    btnAddCatalogo.hidden = !(ordenEditable && totalActivos > 0);
   },
 
   renderPanelJefe() {
@@ -1410,6 +1415,12 @@ const OrdenDetalle = {
     // Modal Agregar Servicio (Jefe)
     document.getElementById('btn-cancelar-agregar-jefe').addEventListener('click', () => this.cerrarModales());
     document.getElementById('btn-confirmar-agregar-jefe').addEventListener('click', () => this.confirmarAgregarJefe());
+
+    // Botón nuevo: técnico agrega servicio al catálogo de la orden
+    const btnAddCatalogo = document.getElementById('btn-agregar-catalogo-tec');
+    if (btnAddCatalogo) {
+      btnAddCatalogo.addEventListener('click', () => this.abrirModalAgregarJefe());
+    }
   },
 
   toggleInfoCard() {
