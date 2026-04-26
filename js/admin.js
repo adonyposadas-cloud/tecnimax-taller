@@ -29,7 +29,8 @@ const Admin = {
     serviciosCatalogo: [],
 
     realtimeChannel: null,
-    cronometros: {},  // { tecnicoId: intervalId }
+    pollingInterval: null,
+    cronometros: {},  // { tecnicoId_servicioId: intervalId }
   },
 
   // ==================== INIT ====================
@@ -81,6 +82,32 @@ const Admin = {
       } else {
         lista.hidden = true;
         btn.textContent = 'Ver';
+      }
+    });
+
+    // KPIs cliqueables (excepto "Tiempo promedio" que no lleva detalle)
+    document.querySelectorAll('.kpi-card[data-kpi]').forEach(card => {
+      card.addEventListener('click', () => {
+        this.abrirKpiModal(card.dataset.kpi);
+      });
+    });
+
+    // Cerrar KPI modal
+    document.getElementById('kpi-modal-close').addEventListener('click', () => this.cerrarKpiModal());
+    document.getElementById('kpi-modal-backdrop').addEventListener('click', () => this.cerrarKpiModal());
+
+    // Esc cierra modales
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        this.cerrarKpiModal();
+      }
+    });
+
+    // Refresh al volver a la pestaña (visibilitychange)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        Utils.log('Pestaña visible, refrescando datos...');
+        this.cargarTodo();
       }
     });
   },
@@ -265,6 +292,165 @@ const Admin = {
     document.getElementById('kpi-tiempo-promedio').textContent = tiempoProm;
   },
 
+  // ==================== KPI MODAL DETALLE ====================
+  abrirKpiModal(tipo) {
+    const titulos = {
+      'en-taller': 'Vehículos en taller',
+      'en-proceso': 'Servicios en proceso',
+      'pausados': 'Servicios pausados',
+      'ingresos': 'Órdenes ingresadas',
+      'completados': 'Órdenes completadas',
+    };
+
+    document.getElementById('kpi-modal-title').textContent = titulos[tipo] || 'Detalle';
+
+    let html = '';
+
+    if (tipo === 'en-taller') {
+      const ordenes = this.state.ordenes.filter(o => o.estado === 'abierta' || o.estado === 'en_progreso');
+      if (ordenes.length === 0) {
+        html = '<div class="empty-state"><p>No hay vehículos en taller.</p></div>';
+      } else {
+        html = ordenes.map(o => {
+          const serviciosOrden = this.state.servicios.filter(s => s.num_orden === o.num_orden);
+          const enProc = serviciosOrden.filter(s => s.estado === 'en_progreso').length;
+          const pau = serviciosOrden.filter(s => s.estado === 'pausado').length;
+          const pen = serviciosOrden.filter(s => s.estado === 'pendiente').length;
+          const com = serviciosOrden.filter(s => s.estado === 'completado').length;
+          const prio = o.prioridad === 'urgente'
+            ? '<span class="kpi-badge kpi-badge-urgente">Urgente</span>' : '';
+          return `
+            <div class="kpi-item" data-orden="${o.num_orden}">
+              <div class="kpi-item-info">
+                <div class="kpi-item-titulo">${Utils.escapeHtml(o.placa)} · ${o.num_orden} ${prio}</div>
+                <div class="kpi-item-meta">${Utils.escapeHtml(o.motivo || 'Sin motivo')}</div>
+                <div class="kpi-item-progress">
+                  ${enProc > 0 ? `<span class="prog-tag prog-en-progreso">${enProc} en curso</span>` : ''}
+                  ${pau > 0 ? `<span class="prog-tag prog-pausado">${pau} pausado${pau !== 1 ? 's' : ''}</span>` : ''}
+                  ${pen > 0 ? `<span class="prog-tag prog-pendiente">${pen} pendiente${pen !== 1 ? 's' : ''}</span>` : ''}
+                  ${com > 0 ? `<span class="prog-tag prog-completado">${com} completado${com !== 1 ? 's' : ''}</span>` : ''}
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    } else if (tipo === 'en-proceso') {
+      const servs = this.state.servicios.filter(s => s.estado === 'en_progreso');
+      if (servs.length === 0) {
+        html = '<div class="empty-state"><p>No hay servicios en proceso.</p></div>';
+      } else {
+        html = servs.map(s => {
+          const orden = this.state.ordenes.find(o => o.num_orden === s.num_orden);
+          const placa = orden ? orden.placa : '—';
+          const tecnico = this.nombreUsuario(s.tecnico_id);
+          const inicio = s.hora_inicio ? this.formatearHora(s.hora_inicio) : '—';
+          return `
+            <div class="kpi-item" data-orden="${s.num_orden}">
+              <div class="kpi-item-info">
+                <div class="kpi-item-titulo">${Utils.escapeHtml(this.nombreServicio(s.servicio_id))}</div>
+                <div class="kpi-item-meta">${Utils.escapeHtml(placa)} · ${s.num_orden} · ${Utils.escapeHtml(tecnico)} · desde ${inicio}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    } else if (tipo === 'pausados') {
+      const servs = this.state.servicios.filter(s => s.estado === 'pausado');
+      if (servs.length === 0) {
+        html = '<div class="empty-state"><p>No hay servicios pausados.</p></div>';
+      } else {
+        const motivos = {
+          repuesto: 'Esperando repuesto',
+          cambio_unidad: 'Cambio de unidad',
+          personal: 'Pausa personal',
+          reasignacion_jefe: 'Reasignación'
+        };
+        html = servs.map(s => {
+          const orden = this.state.ordenes.find(o => o.num_orden === s.num_orden);
+          const placa = orden ? orden.placa : '—';
+          const tecnico = this.nombreUsuario(s.tecnico_id);
+          const pausa = this.pausaAbierta(s.id);
+          const motivo = pausa ? (motivos[pausa.motivo] || pausa.motivo) : '—';
+          const detalle = pausa?.detalle_repuesto ? ' — ' + pausa.detalle_repuesto : '';
+          const desde = pausa ? this.formatearHora(pausa.hora_pausa) : '—';
+          return `
+            <div class="kpi-item" data-orden="${s.num_orden}">
+              <div class="kpi-item-info">
+                <div class="kpi-item-titulo">${Utils.escapeHtml(this.nombreServicio(s.servicio_id))}</div>
+                <div class="kpi-item-meta">${Utils.escapeHtml(placa)} · ${s.num_orden} · ${Utils.escapeHtml(tecnico)}</div>
+                <div class="kpi-item-meta motivo-text">${Utils.escapeHtml(motivo)}${Utils.escapeHtml(detalle)} · pausado desde ${desde}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    } else if (tipo === 'ingresos') {
+      const ords = this.state.ordenes.filter(o => this.enRango(o.creada_en));
+      if (ords.length === 0) {
+        html = '<div class="empty-state"><p>Sin ingresos en este rango.</p></div>';
+      } else {
+        html = ords
+          .sort((a, b) => new Date(b.creada_en) - new Date(a.creada_en))
+          .map(o => {
+            const fecha = this.formatearFecha(o.creada_en);
+            const quien = this.nombreUsuario(o.creada_por);
+            const estados = {
+              abierta: 'Abierta', en_progreso: 'En proceso',
+              completada: 'Completada', cancelada: 'Cancelada'
+            };
+            return `
+              <div class="kpi-item" data-orden="${o.num_orden}">
+                <div class="kpi-item-info">
+                  <div class="kpi-item-titulo">${Utils.escapeHtml(o.placa)} · ${o.num_orden}</div>
+                  <div class="kpi-item-meta">${fecha} · Por ${Utils.escapeHtml(quien)} · ${estados[o.estado] || o.estado}</div>
+                </div>
+              </div>
+            `;
+          }).join('');
+      }
+    } else if (tipo === 'completados') {
+      const ords = this.state.ordenes.filter(o => o.estado === 'completada' && this.enRango(o.cerrada_en));
+      if (ords.length === 0) {
+        html = '<div class="empty-state"><p>Sin órdenes completadas en este rango.</p></div>';
+      } else {
+        html = ords
+          .sort((a, b) => new Date(b.cerrada_en) - new Date(a.cerrada_en))
+          .map(o => {
+            const fecha = this.formatearFecha(o.cerrada_en);
+            const serviciosOrden = this.state.servicios.filter(s => s.num_orden === o.num_orden);
+            const tiempoTotal = serviciosOrden.reduce((acc, s) => acc + (s.tiempo_real_min || 0), 0);
+            return `
+              <div class="kpi-item" data-orden="${o.num_orden}">
+                <div class="kpi-item-info">
+                  <div class="kpi-item-titulo">${Utils.escapeHtml(o.placa)} · ${o.num_orden}</div>
+                  <div class="kpi-item-meta">Completada ${fecha} · ${serviciosOrden.length} servicios · ${tiempoTotal} min total</div>
+                </div>
+              </div>
+            `;
+          }).join('');
+      }
+    }
+
+    document.getElementById('kpi-modal-list').innerHTML = html;
+
+    // Bindear clicks
+    document.querySelectorAll('#kpi-modal-list .kpi-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const num = item.dataset.orden;
+        if (num) {
+          window.location.href = `orden-detalle.html?orden=${encodeURIComponent(num)}`;
+        }
+      });
+    });
+
+    document.getElementById('kpi-modal').hidden = false;
+  },
+
+  cerrarKpiModal() {
+    document.getElementById('kpi-modal').hidden = true;
+  },
+
   // ==================== 2. ALERTAS ====================
   renderAlertas() {
     // Servicios completados en el rango con sospechoso=true
@@ -334,45 +520,82 @@ const Admin = {
     let trabajando = 0, pausado = 0, libre = 0;
 
     const html = tecnicos.map(t => {
-      // Su servicio EN_PROGRESO actual (si hay)
-      const servActivo = this.state.servicios.find(
+      // TODOS sus servicios EN_PROGRESO (no solo el primero) — fix bug multi-actividad
+      const serviciosActivos = this.state.servicios.filter(
         s => s.tecnico_id === t.id && s.estado === 'en_progreso'
       );
-      // O su servicio PAUSADO
-      const servPausado = !servActivo
-        ? this.state.servicios.find(s => s.tecnico_id === t.id && s.estado === 'pausado')
-        : null;
+      const serviciosPausados = this.state.servicios.filter(
+        s => s.tecnico_id === t.id && s.estado === 'pausado'
+      );
 
-      let estado, statusClass, cardClass, actividad, tiempoHtml;
+      let estado, statusClass, cardClass, actividadHtml, tiempoHtml;
 
-      if (servActivo) {
+      if (serviciosActivos.length > 0) {
         trabajando++;
         estado = 'Trabajando';
         statusClass = 'status-trabajando';
         cardClass = 'tec-trabajando';
-        const orden = this.state.ordenes.find(o => o.num_orden === servActivo.num_orden);
-        actividad = `${orden ? orden.placa + ' · ' : ''}${this.nombreServicio(servActivo.servicio_id)}`;
-        tiempoHtml = `<div class="tecnico-tiempo" id="cron-${t.id}">00:00:00</div>`;
-      } else if (servPausado) {
+
+        // Mostrar TODOS los servicios activos en líneas separadas
+        actividadHtml = serviciosActivos.map(sa => {
+          const orden = this.state.ordenes.find(o => o.num_orden === sa.num_orden);
+          const placa = orden ? orden.placa : '—';
+          return `<div class="tecnico-actividad-linea">
+                    <span class="placa-mini">${Utils.escapeHtml(placa)}</span>
+                    ${Utils.escapeHtml(this.nombreServicio(sa.servicio_id))}
+                  </div>`;
+        }).join('');
+
+        // Si hay pausados también, agregarlos atenuados
+        if (serviciosPausados.length > 0) {
+          actividadHtml += `<div class="tecnico-actividad-linea atenuado">+ ${serviciosPausados.length} pausado${serviciosPausados.length !== 1 ? 's' : ''}</div>`;
+        }
+
+        // Cronómetro: mostrar el del servicio más antiguo (el que arrancó primero)
+        const masAntiguo = serviciosActivos
+          .filter(s => s.hora_inicio)
+          .sort((a, b) => new Date(a.hora_inicio) - new Date(b.hora_inicio))[0];
+
+        if (masAntiguo) {
+          const sufijo = serviciosActivos.length > 1 ? `<div class="tecnico-multi">+${serviciosActivos.length - 1} más</div>` : '';
+          tiempoHtml = `
+            <div class="tecnico-tiempo-wrapper">
+              <div class="tecnico-tiempo" id="cron-${t.id}-${masAntiguo.id}">00:00:00</div>
+              ${sufijo}
+            </div>`;
+        } else {
+          tiempoHtml = '';
+        }
+      } else if (serviciosPausados.length > 0) {
         pausado++;
         estado = 'Pausado';
         statusClass = 'status-pausado';
         cardClass = 'tec-pausado';
-        const orden = this.state.ordenes.find(o => o.num_orden === servPausado.num_orden);
-        const pausa = this.pausaAbierta(servPausado.id);
-        const motivos = {
-          repuesto: 'Repuesto', cambio_unidad: 'Cambio unidad',
-          personal: 'Personal', reasignacion_jefe: 'Reasignación'
-        };
-        const motivo = pausa ? (motivos[pausa.motivo] || pausa.motivo) : '';
-        actividad = `${orden ? orden.placa + ' · ' : ''}${this.nombreServicio(servPausado.servicio_id)}${motivo ? ' (' + motivo + ')' : ''}`;
-        tiempoHtml = `<div class="tecnico-tiempo" style="color: var(--amarillo);">${motivo}</div>`;
+
+        actividadHtml = serviciosPausados.map(sp => {
+          const orden = this.state.ordenes.find(o => o.num_orden === sp.num_orden);
+          const placa = orden ? orden.placa : '—';
+          const pausa = this.pausaAbierta(sp.id);
+          const motivos = {
+            repuesto: 'repuesto', cambio_unidad: 'cambio unidad',
+            personal: 'personal', reasignacion_jefe: 'reasignación'
+          };
+          const motivo = pausa ? (motivos[pausa.motivo] || pausa.motivo) : '';
+          return `<div class="tecnico-actividad-linea">
+                    <span class="placa-mini">${Utils.escapeHtml(placa)}</span>
+                    ${Utils.escapeHtml(this.nombreServicio(sp.servicio_id))}
+                    ${motivo ? '<span class="motivo-tag">' + motivo + '</span>' : ''}
+                  </div>`;
+        }).join('');
+
+        const sufijo = serviciosPausados.length > 1 ? `<div class="tecnico-multi">${serviciosPausados.length} servicios</div>` : '';
+        tiempoHtml = `<div class="tecnico-tiempo" style="color: var(--amarillo); font-size: 0.85rem;">PAUSADO</div>${sufijo}`;
       } else {
         libre++;
         estado = 'Libre';
         statusClass = 'status-libre';
         cardClass = 'tec-libre';
-        actividad = 'Sin trabajo asignado';
+        actividadHtml = '<div class="tecnico-actividad-linea">Sin trabajo asignado</div>';
         tiempoHtml = '';
       }
 
@@ -381,7 +604,7 @@ const Admin = {
           <div class="tecnico-status ${statusClass}"></div>
           <div class="tecnico-info">
             <div class="tecnico-nombre">${Utils.escapeHtml(t.nombre)}</div>
-            <div class="tecnico-actividad">${Utils.escapeHtml(actividad)}</div>
+            <div class="tecnico-actividad">${actividadHtml}</div>
           </div>
           ${tiempoHtml}
         </div>
@@ -393,39 +616,40 @@ const Admin = {
     document.getElementById('tecnicos-stats').textContent =
       `${trabajando} trabajando · ${pausado} pausados · ${libre} libres`;
 
-    // Iniciar cronómetros para los técnicos trabajando
+    // Iniciar cronómetros para los técnicos trabajando (el más antiguo de cada uno)
     tecnicos.forEach(t => {
-      const servActivo = this.state.servicios.find(
+      const serviciosActivos = this.state.servicios.filter(
         s => s.tecnico_id === t.id && s.estado === 'en_progreso'
       );
-      if (servActivo && servActivo.hora_inicio) {
-        this.iniciarCronometroTecnico(t.id, servActivo);
+      const masAntiguo = serviciosActivos
+        .filter(s => s.hora_inicio)
+        .sort((a, b) => new Date(a.hora_inicio) - new Date(b.hora_inicio))[0];
+
+      if (masAntiguo) {
+        this.iniciarCronometroTecnico(t.id, masAntiguo);
       }
     });
   },
 
   iniciarCronometroTecnico(tecnicoId, servicio) {
+    const elementId = 'cron-' + tecnicoId + '-' + servicio.id;
     const update = () => {
       const inicioMs = new Date(servicio.hora_inicio).getTime();
       const ahora = Date.now();
       const segPausados = this.segundosPausados(servicio.id);
       const transcurridoMs = ahora - inicioMs - (segPausados * 1000);
-      if (transcurridoMs < 0) {
-        const el = document.getElementById('cron-' + tecnicoId);
-        if (el) el.textContent = '00:00:00';
-        return;
-      }
-      const totalSeg = Math.floor(transcurridoMs / 1000);
+      const totalSeg = Math.max(0, Math.floor(transcurridoMs / 1000));
       const h = Math.floor(totalSeg / 3600);
       const m = Math.floor((totalSeg % 3600) / 60);
       const s = totalSeg % 60;
       const fmt = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-      const el = document.getElementById('cron-' + tecnicoId);
+      const el = document.getElementById(elementId);
       if (el) el.textContent = fmt;
     };
 
     update();
-    this.state.cronometros[tecnicoId] = setInterval(update, 1000);
+    const key = tecnicoId + '_' + servicio.id;
+    this.state.cronometros[key] = setInterval(update, 1000);
   },
 
   // ==================== 4. PRODUCTIVIDAD ====================
@@ -447,11 +671,13 @@ const Admin = {
     const stats = {};
     tecnicos.forEach(t => {
       stats[t.id] = {
+        id: t.id,
         nombre: t.nombre,
         codigo: t.codigo,
         servicios: 0,
         tiempoReal: 0,
         tiempoEsperado: 0,
+        listaServicios: [],
       };
     });
 
@@ -463,6 +689,7 @@ const Admin = {
       const cat = this.state.serviciosCatalogo.find(c => c.id === s.servicio_id);
       const mediana = cat?.tiempo_promedio_min || 0;
       stats[s.tecnico_id].tiempoEsperado += mediana;
+      stats[s.tecnico_id].listaServicios.push(s);
     });
 
     // Filtrar técnicos con al menos 1 servicio
@@ -515,18 +742,86 @@ const Admin = {
         ? `${Math.floor(x.tiempoEsperado / 60)}h ${x.tiempoEsperado % 60}m`
         : `${x.tiempoEsperado} min`;
 
+      // Detalle expandible
+      const detalleServicios = x.listaServicios
+        .sort((a, b) => new Date(b.hora_fin) - new Date(a.hora_fin))
+        .map(s => {
+          const cat = this.state.serviciosCatalogo.find(c => c.id === s.servicio_id);
+          const orden = this.state.ordenes.find(o => o.num_orden === s.num_orden);
+          const placa = orden?.placa || '—';
+          const mediana = cat?.tiempo_promedio_min || 0;
+          const tiempoReal = s.tiempo_real_min || 0;
+
+          let detClass = 'detalle-normal';
+          let detIcon = '';
+          if (mediana > 0) {
+            const ratio = tiempoReal / mediana;
+            if (ratio < 0.85) { detClass = 'detalle-eficiente'; detIcon = '⚡'; }
+            else if (ratio > 1.8) { detClass = 'detalle-lento'; detIcon = '⚠️'; }
+            else if (ratio > 1.2) { detClass = 'detalle-medio'; }
+          }
+
+          const fechaFin = this.formatearHora(s.hora_fin);
+
+          return `
+            <div class="prod-detalle-item ${detClass}" data-orden="${s.num_orden}">
+              <div class="prod-detalle-info">
+                <div class="prod-detalle-titulo">${detIcon} ${Utils.escapeHtml(cat?.nombre || 'Servicio')}</div>
+                <div class="prod-detalle-meta">${Utils.escapeHtml(placa)} · ${s.num_orden} · ${fechaFin}</div>
+              </div>
+              <div class="prod-detalle-tiempo">
+                <div>${tiempoReal} min</div>
+                ${mediana > 0 ? `<div class="prod-detalle-mediana">esperado: ${mediana} min</div>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('');
+
       return `
-        <div class="prod-row">
-          <div class="prod-tecnico">${Utils.escapeHtml(x.nombre)}</div>
+        <div class="prod-row prod-row-clickable" data-tecnico="${x.id}">
+          <div class="prod-tecnico">
+            <span class="prod-toggle">▶</span>
+            ${Utils.escapeHtml(x.nombre)}
+          </div>
           <div class="prod-numero">${x.servicios}</div>
           <div class="prod-numero">${tiempoTxt}</div>
           <div class="prod-numero">${espTxt}</div>
           <div class="prod-eficiencia ${efClass}">${eficiencia}</div>
         </div>
+        <div class="prod-detalle" id="prod-detalle-${x.id}" hidden>
+          ${detalleServicios}
+        </div>
       `;
     }).join('');
 
     cont.innerHTML = html;
+
+    // Bindear toggle del detalle
+    cont.querySelectorAll('.prod-row-clickable').forEach(row => {
+      row.addEventListener('click', () => {
+        const tid = row.dataset.tecnico;
+        const detalle = document.getElementById('prod-detalle-' + tid);
+        const toggle = row.querySelector('.prod-toggle');
+        if (detalle.hidden) {
+          detalle.hidden = false;
+          toggle.textContent = '▼';
+          row.classList.add('prod-row-expanded');
+        } else {
+          detalle.hidden = true;
+          toggle.textContent = '▶';
+          row.classList.remove('prod-row-expanded');
+        }
+      });
+    });
+
+    // Click en cada detalle → al detalle de la orden
+    cont.querySelectorAll('.prod-detalle-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const num = item.dataset.orden;
+        if (num) window.location.href = `orden-detalle.html?orden=${encodeURIComponent(num)}`;
+      });
+    });
   },
 
   // ==================== 5. CANCELACIONES ====================
@@ -574,7 +869,13 @@ const Admin = {
     return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   },
 
-  // ==================== REALTIME ====================
+  formatearHora(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  },
+
+  // ==================== REALTIME + POLLING ====================
   activarRealtime() {
     if (this.state.realtimeChannel) return;
 
@@ -587,6 +888,30 @@ const Admin = {
       .subscribe();
 
     Utils.log('Realtime admin activado');
+
+    // Polling cada 15 segundos como fallback (solo cuando la pestaña está visible)
+    this.iniciarPolling();
+  },
+
+  iniciarPolling() {
+    if (this.state.pollingInterval) return;
+
+    this.state.pollingInterval = setInterval(() => {
+      // Solo refrescar si la pestaña está visible
+      if (document.visibilityState === 'visible') {
+        Utils.log('Polling: refrescando datos del tablero...');
+        this.cargarTodo();
+      }
+    }, 15000);  // 15 segundos
+
+    Utils.log('Polling iniciado (cada 15s)');
+  },
+
+  detenerPolling() {
+    if (this.state.pollingInterval) {
+      clearInterval(this.state.pollingInterval);
+      this.state.pollingInterval = null;
+    }
   },
 };
 
