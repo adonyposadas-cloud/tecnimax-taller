@@ -103,6 +103,322 @@
 }
 
 /* ============================================================================
+   PANEL DE JEFE / ADMIN
+   ============================================================================ */
+.panel-jefe {
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.06), rgba(220, 153, 0, 0.06));
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.panel-jefe-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--amarillo);
+  margin-bottom: var(--sp-2);
+}
+
+.panel-jefe-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-jefe-action {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 8px 14px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-jefe-action:hover {
+  background: rgba(255,255,255,0.08);
+  border-color: var(--text-muted);
+}
+
+.btn-jefe-action span {
+  color: var(--azul-claro);
+  font-size: 0.95rem;
+}
+
+.btn-jefe-action.btn-jefe-danger {
+  border-color: rgba(220, 53, 69, 0.3);
+  color: var(--rojo-urgente);
+}
+
+.btn-jefe-action.btn-jefe-danger span {
+  color: var(--rojo-urgente);
+}
+
+.btn-jefe-action.btn-jefe-danger:hover {
+  background: rgba(220, 53, 69, 0.08);
+  border-color: var(--rojo-urgente);
+}
+
+/* ============================================================================
+   ACCIONES DE JEFE EN CADA SERVICIO
+   ============================================================================ */
+.servicio-actions-jefe {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 0 40px;
+  flex-wrap: wrap;
+}
+
+.btn-mini-jefe {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-mini-jefe:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+}
+
+.btn-mini-jefe.btn-mini-danger {
+  color: rgba(220, 53, 69, 0.8);
+  border-color: rgba(220, 53, 69, 0.3);
+}
+
+.btn-mini-jefe.btn-mini-danger:hover {
+  background: rgba(220, 53, 69, 0.08);
+  color: var(--rojo-urgente);
+}
+
+/* ============================================================================
+   MODAL PRIORIDAD
+   ============================================================================ */
+.prio-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.prio-option {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+}
+
+.prio-option:hover {
+  background: rgba(255,255,255,0.06);
+}
+
+.prio-option.prio-active {
+  background: rgba(46, 117, 182, 0.16);
+  border-color: var(--azul-claro);
+}
+
+.prio-option[data-prio="urgente"].prio-active {
+  background: rgba(220, 53, 69, 0.16);
+  border-color: var(--rojo-urgente);
+}
+
+.prio-option-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1rem;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.prio-option-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+@media (max-width: 480px) {
+  .prio-grid { grid-template-columns: 1fr; }
+}
+
+/* ============================================================================
+   MODAL REASIGNAR
+   ============================================================================ */
+.reasignar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.reasignar-item {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: all 0.15s;
+}
+
+.reasignar-item:hover { background: rgba(255,255,255,0.06); }
+
+.reasignar-item.reasignar-selected {
+  background: rgba(46, 117, 182, 0.15);
+  border-color: var(--azul-claro);
+}
+
+.reasignar-item input[type="radio"] {
+  accent-color: var(--azul-claro);
+  width: 16px;
+  height: 16px;
+}
+
+.reasignar-tecnico-info { flex: 1; }
+.reasignar-tecnico-nombre { font-size: 0.9rem; font-weight: 500; color: var(--text); }
+.reasignar-tecnico-codigo { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.checkbox-label input[type="checkbox"] {
+  accent-color: var(--azul-claro);
+  width: 16px;
+  height: 16px;
+}
+
+/* ============================================================================
+   MODAL AGREGAR (Jefe) - similar al de Nueva Orden
+   ============================================================================ */
+.categorias-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--sp-3);
+}
+
+.cat-chip {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  padding: 5px 12px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.cat-chip:hover { color: var(--text); }
+.cat-chip.cat-active {
+  background: rgba(46, 117, 182, 0.18);
+  color: var(--azul-claro);
+  border-color: rgba(46, 117, 182, 0.4);
+}
+
+.cat-chip .cat-count {
+  background: rgba(255,255,255,0.08);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.cat-chip.cat-active .cat-count {
+  background: var(--azul-claro);
+  color: white;
+}
+
+.servicios-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.servicio-item {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.servicio-item:hover { background: rgba(255,255,255,0.06); }
+
+.servicio-item.servicio-selected {
+  background: rgba(46, 117, 182, 0.15);
+  border-color: var(--azul-claro);
+}
+
+.servicio-item input[type="checkbox"] {
+  accent-color: var(--azul-claro);
+  width: 16px;
+  height: 16px;
+}
+
+.servicio-item-info { flex: 1; }
+.servicio-item-nombre { font-size: 0.85rem; font-weight: 500; color: var(--text); }
+.servicio-item-meta { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
+
+.footer-info {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  flex: 1;
+}
+
+/* ============================================================================
+   ESTADO CANCELADO
+   ============================================================================ */
+.badge.badge-cancelada {
+  background: rgba(108, 117, 125, 0.18);
+  color: rgba(220, 53, 69, 0.9);
+}
+
+.servicio-card.estado-cancelado {
+  background: rgba(108, 117, 125, 0.04);
+  border-left: 3px solid rgba(108, 117, 125, 0.4);
+  padding-left: calc(var(--sp-4) - 3px);
+  opacity: 0.6;
+}
+
+.servicio-icono.icon-cancelado { background: rgba(108, 117, 125, 0.12); color: var(--text-muted); }
+.servicio-estado-text.txt-cancelado { background: rgba(108, 117, 125, 0.12); color: var(--text-muted); }
+
+/* ============================================================================
    TARJETAS
    ============================================================================ */
 .card {
