@@ -1034,3 +1034,22 @@
   .motivo-grid { grid-template-columns: 1fr; }
   .motivo-btn { flex-direction: row; padding: 10px 14px; gap: 10px; text-align: left; }
 }
+
+/* Botón especial: agregar servicio nuevo al catálogo (técnico) */
+.btn-add-catalogo {
+  background: rgba(40, 167, 69, 0.18) !important;
+  border-color: rgba(40, 167, 69, 0.4) !important;
+  color: var(--verde-ok) !important;
+  margin-left: 6px;
+}
+
+.btn-add-catalogo:hover {
+  background: rgba(40, 167, 69, 0.3) !important;
+  color: white !important;
+}
+
+.banner-info-action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
