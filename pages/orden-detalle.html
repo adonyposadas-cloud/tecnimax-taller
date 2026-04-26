@@ -27,21 +27,31 @@
 
   <main class="detalle-main">
 
-    <!-- Loading -->
     <div id="loading" class="loading-state">
       <p>Cargando orden...</p>
     </div>
 
-    <!-- Error -->
     <div id="error-state" class="error-state" hidden>
       <p id="error-msg-text">Orden no encontrada.</p>
       <button class="btn-secondary" onclick="history.back()">Volver</button>
     </div>
 
-    <!-- Contenido (oculto hasta cargar) -->
     <div id="orden-content" hidden>
 
-      <!-- Tarjeta principal: vehículo + estado -->
+      <!-- Banner informativo: solo se muestra si el técnico tiene servicios activos en ESTA orden -->
+      <section id="banner-info" class="banner-info" hidden>
+        <div class="banner-info-content">
+          <div class="banner-info-label">TUS SERVICIOS ACTIVOS</div>
+          <div class="banner-info-stats" id="banner-stats">—</div>
+        </div>
+        <div class="banner-info-action">
+          <button id="btn-agregar-trabajo" class="btn-add-work" hidden>
+            + Agregar servicio
+          </button>
+        </div>
+      </section>
+
+      <!-- Tarjeta principal -->
       <section class="card">
         <div class="card-header">
           <div class="vehiculo-info">
@@ -93,24 +103,112 @@
           <span class="servicios-progress" id="servicios-progress">0/0</span>
         </div>
 
-        <div id="servicios-list" class="servicios-list">
-          <!-- Se llena dinámicamente -->
-        </div>
-      </section>
-
-      <!-- Aviso para Fase 3b-2 -->
-      <section class="card card-soft">
-        <div class="info-block" style="text-align: center;">
-          <div class="info-text" style="color: var(--text-muted);">
-            Los botones <strong>EMPEZAR</strong>, <strong>PAUSAR</strong> y <strong>TERMINAR</strong>
-            se habilitarán en la próxima entrega.
-          </div>
-        </div>
+        <div id="servicios-list" class="servicios-list"></div>
       </section>
 
     </div>
 
   </main>
+
+  <!-- ============= MODAL EMPEZAR ============= -->
+  <div id="modal-empezar" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Empezar trabajo</h2>
+      </header>
+      <div class="modal-body">
+        <p class="modal-desc">Vas a empezar este servicio:</p>
+        <div id="empezar-resumen" class="resumen-box"></div>
+        <p class="modal-warn" id="empezar-warn" hidden></p>
+        <div id="empezar-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-empezar">Cancelar</button>
+        <button type="button" class="btn-start" id="btn-confirmar-empezar">EMPEZAR</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL PAUSAR ============= -->
+  <div id="modal-pausar" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Pausar servicio</h2>
+      </header>
+      <div class="modal-body">
+        <div id="pausar-resumen" class="resumen-box"></div>
+        <div class="field">
+          <label>Motivo de la pausa <span class="required">*</span></label>
+          <div class="motivo-grid">
+            <button type="button" class="motivo-btn" data-motivo="repuesto">
+              <span class="motivo-icon">📦</span>
+              <span>Falta repuesto</span>
+            </button>
+            <button type="button" class="motivo-btn" data-motivo="cambio_unidad">
+              <span class="motivo-icon">🔧</span>
+              <span>Cambio de unidad</span>
+            </button>
+            <button type="button" class="motivo-btn" data-motivo="personal">
+              <span class="motivo-icon">⏱</span>
+              <span>Personal</span>
+            </button>
+          </div>
+        </div>
+        <div class="field" id="campo-detalle" hidden>
+          <label for="pausa-detalle">Detalle del repuesto</label>
+          <textarea id="pausa-detalle" class="field-input field-textarea" placeholder="¿Qué repuesto se necesita?"></textarea>
+        </div>
+        <div id="pausa-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-pausar">Cancelar</button>
+        <button type="button" class="btn-pause" id="btn-confirmar-pausar" disabled>PAUSAR</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL TERMINAR ============= -->
+  <div id="modal-terminar" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Terminar servicio</h2>
+      </header>
+      <div class="modal-body">
+        <div id="terminar-resumen" class="resumen-box"></div>
+        <div class="field">
+          <label for="terminar-observacion">Observación (opcional)</label>
+          <textarea id="terminar-observacion" class="field-input field-textarea" placeholder="Resultado, hallazgos, recomendaciones..."></textarea>
+        </div>
+        <div id="terminar-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-terminar">Cancelar</button>
+        <button type="button" class="btn-stop" id="btn-confirmar-terminar">Terminar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL AGREGAR ============= -->
+  <div id="modal-agregar" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Agregar servicio al trabajo</h2>
+      </header>
+      <div class="modal-body">
+        <p class="modal-desc">Selecciona los servicios pendientes que vas a hacer al mismo tiempo:</p>
+        <div id="agregar-list" class="agregar-list"></div>
+        <div id="agregar-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-agregar">Cancelar</button>
+        <button type="button" class="btn-primary-action" id="btn-confirmar-agregar" disabled>Agregar</button>
+      </footer>
+    </div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../js/config.js"></script>
