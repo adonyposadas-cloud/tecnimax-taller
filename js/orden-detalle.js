@@ -32,6 +32,7 @@ const OrdenDetalle = {
     motivoPausaSeleccionado: null,
     servicioAccionId: null,   // id del servicio sobre el que se hace acción
     serviciosAgregar: new Set(),
+    alertasMtto: [],   // Alertas de mantenimiento del vehículo (Fase 4b)
   },
 
   // ==================== INIT ====================
@@ -126,10 +127,30 @@ const OrdenDetalle = {
 
       await this.cargarPausas();
       await this.cargarTecnicos();
+      await this.cargarAlertasMtto();
       this.render();
     } catch (err) {
       Utils.log('Error cargando orden:', err);
       this.mostrarError('No se pudo cargar la orden. ' + (err.message || ''));
+    }
+  },
+
+  async cargarAlertasMtto() {
+    if (!this.state.orden || !this.state.orden.placa) {
+      this.state.alertasMtto = [];
+      return;
+    }
+    try {
+      const { data, error } = await supabaseClient
+        .rpc('f_alertas_vehiculo', { p_placa: this.state.orden.placa });
+      if (error) throw error;
+      // Solo nos interesan las que NO están OK ni sin_historial para mostrar al técnico
+      this.state.alertasMtto = (data || []).filter(
+        a => a.estado === 'vencido' || a.estado === 'proximo'
+      );
+    } catch (err) {
+      Utils.log('Error cargando alertas vehículo (puede ser BD vieja):', err);
+      this.state.alertasMtto = [];
     }
   },
 
@@ -252,7 +273,116 @@ const OrdenDetalle = {
     }
 
     this.renderBannerInfo();
+    this.renderAlertasMttoBanner();
     this.renderServicios();
+  },
+
+  // Banner de alertas KM del vehículo (Fase 4b)
+  renderAlertasMttoBanner() {
+    let banner = document.getElementById('banner-alertas-mtto');
+    const alertas = this.state.alertasMtto || [];
+
+    // Filtrar alertas: si el servicio ya está en la orden actual, no la sugerimos
+    const idsEnOrden = new Set(this.state.servicios.map(s => s.servicio_id));
+    const sugeridas = alertas.filter(a => !idsEnOrden.has(a.servicio_id));
+
+    // Si no hay alertas o no se debe mostrar (orden cancelada/completada), quitar banner
+    const o = this.state.orden;
+    const ordenActiva = o && (o.estado === 'abierta' || o.estado === 'en_progreso');
+    if (sugeridas.length === 0 || !ordenActiva) {
+      if (banner) banner.remove();
+      return;
+    }
+
+    // Crear banner si no existe
+    if (!banner) {
+      banner = document.createElement('section');
+      banner.id = 'banner-alertas-mtto';
+      banner.className = 'banner-alertas-mtto';
+      // Insertar antes de la sección de servicios (la última card del orden-content)
+      const content = document.getElementById('orden-content');
+      const cards = content.querySelectorAll('section.card');
+      const ultimaCard = cards[cards.length - 1];
+      if (ultimaCard) {
+        content.insertBefore(banner, ultimaCard);
+      } else {
+        content.appendChild(banner);
+      }
+    }
+
+    const vencidas = sugeridas.filter(a => a.estado === 'vencido').length;
+    const proximas = sugeridas.filter(a => a.estado === 'proximo').length;
+    const icon = vencidas > 0 ? '🔴' : '🟡';
+    const titulo = vencidas > 0
+      ? `${vencidas} servicio${vencidas !== 1 ? 's' : ''} vencido${vencidas !== 1 ? 's' : ''}`
+      : `${proximas} servicio${proximas !== 1 ? 's' : ''} próximo${proximas !== 1 ? 's' : ''} a vencer`;
+
+    const items = sugeridas.map(a => {
+      const cls = a.estado === 'vencido' ? 'mtto-vencido' : 'mtto-proximo';
+      let detalle = '';
+      if (a.km_recorridos != null && a.intervalo_km) {
+        detalle = `${a.km_recorridos.toLocaleString('es-HN')} / ${a.intervalo_km.toLocaleString('es-HN')} km`;
+      } else if (a.dias_transcurridos != null && a.intervalo_dias) {
+        detalle = `${a.dias_transcurridos} / ${a.intervalo_dias} días`;
+      }
+      return `
+        <li class="mtto-item ${cls}">
+          <span class="mtto-item-nombre">${Utils.escapeHtml(a.servicio_nombre)}</span>
+          <span class="mtto-item-detalle">${Utils.escapeHtml(detalle)}</span>
+        </li>
+      `;
+    }).join('');
+
+    // Solo el jefe o admin puede agregar servicios desde aquí
+    const puedeAgregar = this.state.profile.rol === 'jefe_pista' || this.state.profile.rol === 'admin';
+    const btnAgregar = puedeAgregar
+      ? '<button id="btn-agregar-alertas" class="btn-agregar-alertas">+ Agregar a esta orden</button>'
+      : '<div class="mtto-hint">Avisa al jefe para agregar estos servicios.</div>';
+
+    banner.innerHTML = `
+      <div class="banner-alertas-header">
+        <span class="banner-alertas-icon">${icon}</span>
+        <div class="banner-alertas-info">
+          <div class="banner-alertas-titulo">${titulo} en este vehículo</div>
+          <div class="banner-alertas-subtitulo">Mantenimiento preventivo sugerido</div>
+        </div>
+      </div>
+      <ul class="mtto-list">${items}</ul>
+      <div class="banner-alertas-footer">${btnAgregar}</div>
+    `;
+
+    if (puedeAgregar) {
+      const btn = document.getElementById('btn-agregar-alertas');
+      if (btn) {
+        btn.addEventListener('click', () => this.agregarServiciosAlertados(sugeridas));
+      }
+    }
+  },
+
+  // Agrega los servicios alertados a la orden actual (jefe/admin)
+  async agregarServiciosAlertados(alertas) {
+    if (!confirm(`¿Agregar ${alertas.length} servicio(s) sugerido(s) a esta orden?`)) return;
+
+    try {
+      const filas = alertas.map(a => ({
+        num_orden: this.state.numOrden,
+        servicio_id: a.servicio_id,
+        estado: 'pendiente',
+        agregado_por: this.state.profile.id,
+      }));
+
+      const { error } = await supabaseClient
+        .from('servicios_orden')
+        .insert(filas);
+
+      if (error) throw error;
+
+      Utils.log('Servicios alertados agregados:', alertas.length);
+      await this.cargarOrden();
+    } catch (err) {
+      Utils.log('Error agregando servicios alertados:', err);
+      alert('No se pudieron agregar los servicios. ' + (err.message || ''));
+    }
   },
 
   renderBannerInfo() {
