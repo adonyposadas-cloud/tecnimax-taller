@@ -83,21 +83,70 @@
 
         <fieldset class="form-section">
           <legend>Vehículo</legend>
-          <div class="form-grid-3">
+          <div class="form-grid-vehiculo" style="display:grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-3);">
             <div class="field">
               <label for="placa">Placa</label>
               <input type="text" id="placa" class="field-input field-mono" required autocomplete="off" autocapitalize="characters" placeholder="Ej: TEST-001" />
               <span class="field-help" id="placa-hint">Digita la placa</span>
             </div>
             <div class="field">
-              <label for="vehiculo-info">Marca y modelo</label>
-              <input type="text" id="vehiculo-info" class="field-input field-disabled" disabled placeholder="—" />
+              <label for="marca">Marca</label>
+              <input type="text" id="marca" class="field-input field-disabled" disabled autocomplete="off" autocapitalize="characters" placeholder="—" list="lista-marcas" />
+              <datalist id="lista-marcas">
+                <option value="HONDA"></option>
+                <option value="TOYOTA"></option>
+                <option value="NISSAN"></option>
+                <option value="HYUNDAI"></option>
+                <option value="KIA"></option>
+                <option value="MAZDA"></option>
+                <option value="MITSUBISHI"></option>
+                <option value="SUZUKI"></option>
+                <option value="SUBARU"></option>
+                <option value="FORD"></option>
+                <option value="CHEVROLET"></option>
+                <option value="ISUZU"></option>
+                <option value="DAIHATSU"></option>
+                <option value="VOLKSWAGEN"></option>
+                <option value="FIAT"></option>
+                <option value="RENAULT"></option>
+                <option value="PEUGEOT"></option>
+                <option value="MERCEDES BENZ"></option>
+                <option value="BMW"></option>
+                <option value="AUDI"></option>
+                <option value="JEEP"></option>
+                <option value="DODGE"></option>
+                <option value="RAM"></option>
+                <option value="GMC"></option>
+                <option value="LAND ROVER"></option>
+                <option value="LEXUS"></option>
+                <option value="ACURA"></option>
+                <option value="INFINITI"></option>
+                <option value="SCION"></option>
+                <option value="GREAT WALL"></option>
+                <option value="JAC"></option>
+                <option value="GEELY"></option>
+                <option value="CHANGAN"></option>
+                <option value="CHERY"></option>
+                <option value="BAIC"></option>
+                <option value="FOTON"></option>
+              </datalist>
+            </div>
+            <div class="field">
+              <label for="modelo">Modelo</label>
+              <input type="text" id="modelo" class="field-input field-disabled" disabled autocomplete="off" placeholder="—" />
             </div>
             <div class="field">
               <label for="km-ingreso">KM ingreso</label>
               <input type="number" id="km-ingreso" class="field-input" required min="0" placeholder="0" />
             </div>
           </div>
+          <style>
+            @media (max-width: 700px) {
+              .form-grid-vehiculo {
+                grid-template-columns: 1fr 1fr !important;
+              }
+            }
+          </style>
         </fieldset>
 
         <fieldset class="form-section">
