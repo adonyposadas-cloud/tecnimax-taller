@@ -7,7 +7,7 @@
  *  - Invalidación por versión: al subir cambios, incrementa CACHE_VERSION.
  */
 
-const CACHE_VERSION = 'tecnimax-taller-v1.2.0';
+const CACHE_VERSION = 'tecnimax-taller-v1.3.0';
 const APP_SHELL = [
   './',
   './index.html',
