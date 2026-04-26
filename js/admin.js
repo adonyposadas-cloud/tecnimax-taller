@@ -27,6 +27,7 @@ const Admin = {
     cancelaciones: [],
     usuarios: [],
     serviciosCatalogo: [],
+    alertasMtto: [],  // Alertas de mantenimiento KM (Fase 4b)
 
     realtimeChannel: null,
     pollingInterval: null,
@@ -164,6 +165,7 @@ const Admin = {
         this.cargarServicios(),
         this.cargarPausas(),
         this.cargarCancelaciones(),
+        this.cargarAlertasMtto(),
       ]);
 
       this.renderKPIs();
@@ -171,6 +173,7 @@ const Admin = {
       this.renderTecnicos();
       this.renderProductividad();
       this.renderCancelaciones();
+      this.renderAlertasMttoKpi();
     } catch (err) {
       Utils.log('Error cargando todo:', err);
     }
@@ -227,6 +230,45 @@ const Admin = {
       .order('cancelada_en', { ascending: false });
     if (error) throw error;
     this.state.cancelaciones = data || [];
+  },
+
+  async cargarAlertasMtto() {
+    try {
+      const { data, error } = await supabaseClient.rpc('f_alertas_flota');
+      if (error) throw error;
+      this.state.alertasMtto = data || [];
+    } catch (err) {
+      Utils.log('Error cargando alertas mtto (puede ser BD vieja):', err);
+      this.state.alertasMtto = [];
+    }
+  },
+
+  renderAlertasMttoKpi() {
+    const card = document.getElementById('kpi-card-alertas-mtto');
+    const valEl = document.getElementById('kpi-alertas-mtto');
+    const hintEl = document.getElementById('kpi-alertas-mtto-hint');
+    if (!card || !valEl) return;
+
+    const alertas = this.state.alertasMtto || [];
+    if (alertas.length === 0) {
+      card.hidden = true;
+      return;
+    }
+
+    const vencidas = alertas.filter(a => a.estado === 'vencido').length;
+    const proximas = alertas.filter(a => a.estado === 'proximo').length;
+
+    valEl.textContent = vencidas > 0 ? vencidas : proximas;
+    hintEl.textContent = vencidas > 0
+      ? `vencida${vencidas !== 1 ? 's' : ''} · ${proximas} próxima${proximas !== 1 ? 's' : ''}`
+      : `próxima${proximas !== 1 ? 's' : ''}`;
+
+    if (vencidas === 0) {
+      card.classList.add('alertas-solo-proximas');
+    } else {
+      card.classList.remove('alertas-solo-proximas');
+    }
+    card.hidden = false;
   },
 
   // ==================== HELPERS ====================
@@ -309,11 +351,47 @@ const Admin = {
       'pausados': 'Servicios pausados',
       'ingresos': 'Órdenes ingresadas',
       'completados': 'Órdenes completadas',
+      'alertas-mtto': 'Alertas de mantenimiento',
     };
 
     document.getElementById('kpi-modal-title').textContent = titulos[tipo] || 'Detalle';
 
     let html = '';
+
+    if (tipo === 'alertas-mtto') {
+      const alertas = (this.state.alertasMtto || []).slice().sort((a, b) => {
+        if (a.estado !== b.estado) return a.estado === 'vencido' ? -1 : 1;
+        return (b.pct_max || 0) - (a.pct_max || 0);
+      });
+      if (alertas.length === 0) {
+        html = '<div class="empty-state"><p>Sin alertas activas.</p></div>';
+      } else {
+        html = alertas.map(a => {
+          const cls = a.estado === 'vencido' ? 'vencido' : 'proximo';
+          let detalle = '';
+          if (a.km_recorridos != null && a.intervalo_km) {
+            detalle = `${a.km_recorridos}/${a.intervalo_km} km`;
+          } else if (a.dias_transcurridos != null && a.intervalo_dias) {
+            detalle = `${a.dias_transcurridos}/${a.intervalo_dias} días`;
+          }
+          const gpsHint = a.km_gps_desactualizado ? ' ⏱' : '';
+          const pct = a.pct_max != null ? Math.round(a.pct_max) + '%' : '—';
+          return `
+            <div class="kpi-modal-alerta-row">
+              <span class="kpi-modal-alerta-dot ${cls}"></span>
+              <div class="kpi-modal-alerta-info">
+                <div class="kpi-modal-alerta-placa">${Utils.escapeHtml(a.placa)}${gpsHint} <small style="color:var(--text-muted); font-weight:400;">${Utils.escapeHtml((a.marca || '') + ' ' + (a.modelo || ''))}</small></div>
+                <div class="kpi-modal-alerta-serv">${Utils.escapeHtml(a.servicio_nombre)} · ${Utils.escapeHtml(detalle)}</div>
+              </div>
+              <div class="kpi-modal-alerta-pct ${cls}">${pct}</div>
+            </div>
+          `;
+        }).join('');
+      }
+      document.getElementById('kpi-modal-list').innerHTML = html;
+      document.getElementById('kpi-modal').hidden = false;
+      return;
+    }
 
     if (tipo === 'en-taller') {
       const ordenes = this.state.ordenes.filter(o => o.estado === 'abierta' || o.estado === 'en_progreso');
