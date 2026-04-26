@@ -71,12 +71,19 @@ const OrdenDetalle = {
   // ==================== CATÁLOGO ====================
   async cargarCatalogo() {
     try {
-      const { data, error } = await supabaseClient
-        .from('catalogo_servicios')
-        .select('id, nombre, categoria_id, tiempo_promedio_min')
-        .eq('activo', true);
-      if (error) throw error;
-      this.state.serviciosCatalogo = data || [];
+      const [servRes, catRes] = await Promise.all([
+        supabaseClient.from('catalogo_servicios')
+          .select('id, nombre, categoria_id, tiempo_promedio_min')
+          .eq('activo', true),
+        supabaseClient.from('categorias')
+          .select('id, nombre, orden_visual')
+          .eq('activa', true)
+          .order('orden_visual')
+      ]);
+      if (servRes.error) throw servRes.error;
+      if (catRes.error) throw catRes.error;
+      this.state.serviciosCatalogo = servRes.data || [];
+      this.state.categorias = catRes.data || [];
     } catch (err) {
       Utils.log('Error cargando catálogo:', err);
     }
@@ -224,6 +231,8 @@ const OrdenDetalle = {
       badgeEst.textContent = 'Completada'; badgeEst.className = 'badge badge-completada';
     } else if (o.estado === 'en_progreso') {
       badgeEst.textContent = 'En proceso'; badgeEst.className = 'badge badge-en-progreso';
+    } else if (o.estado === 'cancelada') {
+      badgeEst.textContent = 'Cancelada'; badgeEst.className = 'badge badge-cancelada';
     } else {
       badgeEst.textContent = 'Abierta'; badgeEst.className = 'badge badge-abierta';
     }
@@ -253,6 +262,7 @@ const OrdenDetalle = {
 
     if (this.state.profile.rol !== 'tecnico') {
       banner.hidden = true;
+      this.renderPanelJefe();
       return;
     }
 
@@ -281,9 +291,30 @@ const OrdenDetalle = {
     }
     document.getElementById('banner-stats').textContent = txt;
 
-    // Mostrar "Agregar servicio" solo si hay pendientes Y al menos un activo
     const hayPendientes = this.state.servicios.some(s => s.estado === 'pendiente');
     btnAdd.hidden = !(hayPendientes && enCurso.length > 0);
+  },
+
+  renderPanelJefe() {
+    const rol = this.state.profile.rol;
+    const panel = document.getElementById('panel-jefe');
+
+    if (rol !== 'jefe_pista' && rol !== 'admin') {
+      panel.hidden = true;
+      return;
+    }
+
+    const o = this.state.orden;
+    if (!o || o.estado === 'completada' || o.estado === 'cancelada') {
+      panel.hidden = true;
+      return;
+    }
+
+    panel.hidden = false;
+
+    // Mostrar "Agregar servicio" solo si la orden está abierta (no en progreso)
+    const btnAgregarSrv = document.getElementById('btn-agregar-servicio-jefe');
+    btnAgregarSrv.hidden = o.estado !== 'abierta';
   },
 
   renderServicios() {
@@ -345,14 +376,17 @@ const OrdenDetalle = {
     const mediana = cat?.tiempo_promedio_min || null;
 
     const userId = this.state.profile.id;
+    const rol = this.state.profile.rol;
     const esMio = s.tecnico_id === userId;
-    const esTecnico = this.state.profile.rol === 'tecnico';
+    const esTecnico = rol === 'tecnico';
+    const esJefe = rol === 'jefe_pista' || rol === 'admin';
 
     let icono, txtEstado;
     switch (s.estado) {
       case 'completado': icono = '✓'; txtEstado = 'Completado'; break;
       case 'en_progreso': icono = '▶'; txtEstado = 'En curso'; break;
       case 'pausado': icono = '‖'; txtEstado = 'Pausado'; break;
+      case 'cancelado': icono = '✗'; txtEstado = 'Cancelado'; break;
       default: icono = '○'; txtEstado = 'Pendiente';
     }
 
@@ -409,8 +443,8 @@ const OrdenDetalle = {
       }
     }
 
-    // Botones de acción según estado
-    if (esTecnico && s.estado !== 'completado') {
+    // Botones de acción del TÉCNICO
+    if (esTecnico && s.estado !== 'completado' && s.estado !== 'cancelado') {
       let acciones = '';
 
       if (s.estado === 'pendiente') {
@@ -432,6 +466,25 @@ const OrdenDetalle = {
       }
     }
 
+    // Botones de acción del JEFE
+    if (esJefe && s.estado !== 'completado' && s.estado !== 'cancelado') {
+      let accionesJefe = '';
+
+      // Reasignar técnico (solo si está activo o pausado)
+      if (s.estado === 'en_progreso' || s.estado === 'pausado') {
+        accionesJefe += `<button class="btn-mini-jefe" data-action="reasignar" data-sid="${s.id}">↔ Reasignar técnico</button>`;
+      }
+
+      // Quitar servicio (solo si pendiente y orden abierta)
+      if (s.estado === 'pendiente' && this.state.orden?.estado === 'abierta') {
+        accionesJefe += `<button class="btn-mini-jefe btn-mini-danger" data-action="quitar-servicio" data-sid="${s.id}">✗ Quitar</button>`;
+      }
+
+      if (accionesJefe) {
+        html += `<div class="servicio-actions-jefe">${accionesJefe}</div>`;
+      }
+    }
+
     html += '</div>';
     return html;
   },
@@ -442,6 +495,8 @@ const OrdenDetalle = {
       case 'pausar': return this.abrirModalPausar(sid);
       case 'reanudar': return this.confirmarReanudar(sid);
       case 'terminar': return this.abrirModalTerminar(sid);
+      case 'reasignar': return this.abrirModalReasignar(sid);
+      case 'quitar-servicio': return this.confirmarQuitarServicio(sid);
     }
   },
 
@@ -854,6 +909,387 @@ const OrdenDetalle = {
     }
   },
 
+  // ==================== ACCIONES DEL JEFE ====================
+
+  // ----- CAMBIAR PRIORIDAD -----
+  abrirModalPrioridad() {
+    const actual = this.state.orden?.prioridad || 'normal';
+    document.querySelectorAll('.prio-option').forEach(b => {
+      b.classList.toggle('prio-active', b.dataset.prio === actual);
+    });
+    this.state.nuevaPrioridad = actual;
+    document.getElementById('btn-confirmar-prioridad').disabled = true;
+    document.getElementById('prioridad-error').hidden = true;
+    document.getElementById('modal-prioridad').hidden = false;
+  },
+
+  async confirmarPrioridad() {
+    const nueva = this.state.nuevaPrioridad;
+    if (!nueva || nueva === this.state.orden.prioridad) {
+      this.cerrarModales();
+      return;
+    }
+
+    const btn = document.getElementById('btn-confirmar-prioridad');
+    btn.disabled = true;
+    btn.textContent = 'Guardando...';
+
+    try {
+      const { error } = await supabaseClient
+        .from('ordenes')
+        .update({ prioridad: nueva })
+        .eq('num_orden', this.state.numOrden);
+      if (error) throw error;
+
+      this.cerrarModales();
+      await this.cargarOrden();
+    } catch (err) {
+      Utils.log('Error cambiando prioridad:', err);
+      this.errorEnModal('prioridad-error', err.message || 'No se pudo cambiar.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Confirmar';
+    }
+  },
+
+  // ----- CANCELAR ORDEN -----
+  abrirModalCancelarOrden() {
+    document.getElementById('cancelar-motivo').value = '';
+    document.getElementById('cancelar-error').hidden = true;
+    document.getElementById('modal-cancelar-orden').hidden = false;
+  },
+
+  async confirmarCancelarOrden() {
+    const motivo = document.getElementById('cancelar-motivo').value.trim();
+    if (!motivo) {
+      this.errorEnModal('cancelar-error', 'Debes indicar el motivo de la cancelación.');
+      return;
+    }
+    if (motivo.length < 10) {
+      this.errorEnModal('cancelar-error', 'El motivo debe tener al menos 10 caracteres.');
+      return;
+    }
+
+    const btn = document.getElementById('btn-confirmar-cancelar');
+    btn.disabled = true;
+    btn.textContent = 'Cancelando...';
+
+    try {
+      const ahora = new Date().toISOString();
+
+      // 1. Insertar en cancelaciones_orden
+      const { error: cErr } = await supabaseClient
+        .from('cancelaciones_orden')
+        .insert({
+          num_orden: this.state.numOrden,
+          motivo: motivo,
+          cancelada_por: this.state.profile.id,
+        });
+      if (cErr) throw cErr;
+
+      // 2. Cancelar todos los servicios pendientes
+      // Los completados se quedan, los en_progreso o pausados también pasan a cancelado
+      const idsActivos = this.state.servicios
+        .filter(s => s.estado !== 'completado')
+        .map(s => s.id);
+
+      if (idsActivos.length > 0) {
+        // Si había pausas abiertas, las cerramos
+        await supabaseClient
+          .from('historial_pausas')
+          .update({ hora_reanudacion: ahora })
+          .in('servicio_orden_id', idsActivos)
+          .is('hora_reanudacion', null);
+
+        // Cambiar estado a cancelado
+        await supabaseClient
+          .from('servicios_orden')
+          .update({ estado: 'cancelado' })
+          .in('id', idsActivos);
+      }
+
+      // 3. Cambiar estado de la orden a cancelada
+      const { error: oErr } = await supabaseClient
+        .from('ordenes')
+        .update({ estado: 'cancelada', cerrada_en: ahora })
+        .eq('num_orden', this.state.numOrden);
+      if (oErr) throw oErr;
+
+      this.cerrarModales();
+      await this.cargarOrden();
+    } catch (err) {
+      Utils.log('Error cancelando orden:', err);
+      this.errorEnModal('cancelar-error', err.message || 'No se pudo cancelar.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Sí, cancelar orden';
+    }
+  },
+
+  // ----- REASIGNAR TÉCNICO -----
+  async abrirModalReasignar(sid) {
+    const s = this.state.servicios.find(x => x.id === sid);
+    if (!s) return;
+    this.state.servicioAccionId = sid;
+
+    const cat = this.state.serviciosCatalogo.find(c => c.id === s.servicio_id);
+    const tecActual = this.state.tecnicos[s.tecnico_id];
+
+    document.getElementById('reasignar-resumen').innerHTML = `
+      <div class="resumen-row">
+        <span class="resumen-label">Servicio</span>
+        <span class="resumen-value">${Utils.escapeHtml(cat?.nombre || 'Servicio')}</span>
+      </div>
+      <div class="resumen-row">
+        <span class="resumen-label">Técnico actual</span>
+        <span class="resumen-value">${tecActual ? Utils.escapeHtml(tecActual.nombre) : '—'}</span>
+      </div>
+    `;
+
+    // Cargar lista de técnicos activos (excepto el actual)
+    try {
+      const { data, error } = await supabaseClient
+        .from('usuarios')
+        .select('id, nombre, codigo, rol')
+        .eq('rol', 'tecnico')
+        .eq('activo', true)
+        .neq('id', s.tecnico_id);
+      if (error) throw error;
+
+      const cont = document.getElementById('reasignar-tecnicos');
+      if ((data || []).length === 0) {
+        cont.innerHTML = '<p class="modal-desc">No hay otros técnicos disponibles.</p>';
+      } else {
+        cont.innerHTML = (data || []).map(u => `
+          <label class="reasignar-item" data-uid="${u.id}">
+            <input type="radio" name="reasignar-tecnico" value="${u.id}" />
+            <div class="reasignar-tecnico-info">
+              <div class="reasignar-tecnico-nombre">${Utils.escapeHtml(u.nombre)}</div>
+              <div class="reasignar-tecnico-codigo">${Utils.escapeHtml(u.codigo)}</div>
+            </div>
+          </label>
+        `).join('');
+
+        // Bindear selección
+        cont.querySelectorAll('.reasignar-item').forEach(item => {
+          item.addEventListener('click', () => {
+            cont.querySelectorAll('.reasignar-item').forEach(i => i.classList.remove('reasignar-selected'));
+            item.classList.add('reasignar-selected');
+            item.querySelector('input').checked = true;
+            this.state.tecnicoReasignar = item.dataset.uid;
+            document.getElementById('btn-confirmar-reasignar').disabled = false;
+          });
+        });
+      }
+    } catch (err) {
+      Utils.log('Error cargando técnicos:', err);
+    }
+
+    document.getElementById('reasignar-conservar-tiempo').checked = true;
+    document.getElementById('btn-confirmar-reasignar').disabled = true;
+    document.getElementById('reasignar-error').hidden = true;
+    this.state.tecnicoReasignar = null;
+    document.getElementById('modal-reasignar').hidden = false;
+  },
+
+  async confirmarReasignar() {
+    const sid = this.state.servicioAccionId;
+    const nuevoTec = this.state.tecnicoReasignar;
+    if (!sid || !nuevoTec) return;
+
+    const conservarTiempo = document.getElementById('reasignar-conservar-tiempo').checked;
+    const s = this.state.servicios.find(x => x.id === sid);
+    if (!s) return;
+
+    const btn = document.getElementById('btn-confirmar-reasignar');
+    btn.disabled = true;
+    btn.textContent = 'Reasignando...';
+
+    try {
+      const updateData = { tecnico_id: nuevoTec };
+
+      if (!conservarTiempo) {
+        // Reset cronómetro
+        updateData.hora_inicio = new Date().toISOString();
+      }
+
+      const { error } = await supabaseClient
+        .from('servicios_orden')
+        .update(updateData)
+        .eq('id', sid);
+      if (error) throw error;
+
+      this.cerrarModales();
+      await this.cargarOrden();
+    } catch (err) {
+      Utils.log('Error reasignando:', err);
+      this.errorEnModal('reasignar-error', err.message || 'No se pudo reasignar.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Reasignar';
+    }
+  },
+
+  // ----- QUITAR SERVICIO PENDIENTE -----
+  async confirmarQuitarServicio(sid) {
+    const s = this.state.servicios.find(x => x.id === sid);
+    if (!s) return;
+    if (s.estado !== 'pendiente') {
+      alert('Solo se pueden quitar servicios pendientes.');
+      return;
+    }
+
+    const cat = this.state.serviciosCatalogo.find(c => c.id === s.servicio_id);
+    const nombre = cat?.nombre || 'Servicio';
+
+    if (!confirm(`¿Quitar el servicio "${nombre}" de esta orden?`)) return;
+
+    try {
+      // Marcar como cancelado en lugar de borrar (mantener trazabilidad)
+      const { error } = await supabaseClient
+        .from('servicios_orden')
+        .update({ estado: 'cancelado' })
+        .eq('id', sid);
+      if (error) throw error;
+
+      await this.cargarOrden();
+    } catch (err) {
+      Utils.log('Error quitando servicio:', err);
+      alert('No se pudo quitar: ' + (err.message || ''));
+    }
+  },
+
+  // ----- AGREGAR SERVICIO (Jefe) -----
+  abrirModalAgregarJefe() {
+    this.state.serviciosAgregarJefe = new Set();
+    this.state.categoriaAgregarJefe = null;
+    this.renderCategoriasAgregarJefe();
+    this.renderServiciosAgregarJefe();
+    this.actualizarContadorAgregarJefe();
+    document.getElementById('agregar-jefe-error').hidden = true;
+    document.getElementById('modal-agregar-jefe').hidden = false;
+  },
+
+  renderCategoriasAgregarJefe() {
+    if (!this.state.categorias) return;
+    const cont = document.getElementById('agregar-jefe-cats');
+    const total = this.state.serviciosAgregarJefe.size;
+    const todasActiva = this.state.categoriaAgregarJefe === null;
+
+    let html = `<button type="button" class="cat-chip ${todasActiva ? 'cat-active' : ''}" data-cat="all">Todas <span class="cat-count">${total}</span></button>`;
+
+    html += this.state.categorias.map(c => {
+      const count = [...this.state.serviciosAgregarJefe]
+        .filter(id => this.state.serviciosCatalogo.find(s => s.id === id)?.categoria_id === c.id)
+        .length;
+      const active = this.state.categoriaAgregarJefe === c.id ? 'cat-active' : '';
+      const countHtml = count > 0 ? `<span class="cat-count">${count}</span>` : '';
+      return `<button type="button" class="cat-chip ${active}" data-cat="${c.id}">${Utils.escapeHtml(c.nombre)} ${countHtml}</button>`;
+    }).join('');
+
+    cont.innerHTML = html;
+
+    cont.querySelectorAll('.cat-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const v = chip.dataset.cat;
+        this.state.categoriaAgregarJefe = v === 'all' ? null : parseInt(v, 10);
+        this.renderCategoriasAgregarJefe();
+        this.renderServiciosAgregarJefe();
+      });
+    });
+  },
+
+  renderServiciosAgregarJefe() {
+    const cont = document.getElementById('agregar-jefe-grid');
+    // Excluir servicios que YA están en la orden (cualquier estado)
+    const yaEnOrden = new Set(this.state.servicios.map(s => s.servicio_id));
+
+    const filtrados = this.state.serviciosCatalogo.filter(s => {
+      if (yaEnOrden.has(s.id)) return false;
+      if (this.state.categoriaAgregarJefe === null) return true;
+      return s.categoria_id === this.state.categoriaAgregarJefe;
+    });
+
+    if (filtrados.length === 0) {
+      cont.innerHTML = '<div class="servicio-empty" style="grid-column: 1/-1; padding: 20px; text-align: center; color: var(--text-muted); font-size: 0.85rem;">No hay servicios disponibles en esta categoría.</div>';
+      return;
+    }
+
+    cont.innerHTML = filtrados.map(s => {
+      const sel = this.state.serviciosAgregarJefe.has(s.id);
+      const tiempo = s.tiempo_promedio_min ? `~${s.tiempo_promedio_min} min` : 'sin datos';
+      return `
+        <label class="servicio-item ${sel ? 'servicio-selected' : ''}" data-sid="${s.id}">
+          <input type="checkbox" ${sel ? 'checked' : ''} />
+          <div class="servicio-item-info">
+            <div class="servicio-item-nombre">${Utils.escapeHtml(s.nombre)}</div>
+            <div class="servicio-item-meta">${tiempo}</div>
+          </div>
+        </label>
+      `;
+    }).join('');
+
+    cont.querySelectorAll('.servicio-item').forEach(item => {
+      const checkbox = item.querySelector('input');
+      item.addEventListener('click', (e) => {
+        if (e.target.tagName !== 'INPUT') {
+          e.preventDefault();
+          checkbox.checked = !checkbox.checked;
+          checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      });
+      checkbox.addEventListener('change', (e) => {
+        const id = parseInt(item.dataset.sid, 10);
+        if (e.target.checked) {
+          this.state.serviciosAgregarJefe.add(id);
+        } else {
+          this.state.serviciosAgregarJefe.delete(id);
+        }
+        item.classList.toggle('servicio-selected', e.target.checked);
+        this.actualizarContadorAgregarJefe();
+        this.renderCategoriasAgregarJefe();
+      });
+    });
+  },
+
+  actualizarContadorAgregarJefe() {
+    const n = this.state.serviciosAgregarJefe.size;
+    document.getElementById('agregar-jefe-counter').textContent = `${n} seleccionado${n !== 1 ? 's' : ''}`;
+    document.getElementById('btn-confirmar-agregar-jefe').disabled = n === 0;
+  },
+
+  async confirmarAgregarJefe() {
+    const ids = [...this.state.serviciosAgregarJefe];
+    if (ids.length === 0) return;
+
+    const btn = document.getElementById('btn-confirmar-agregar-jefe');
+    btn.disabled = true;
+    btn.textContent = 'Agregando...';
+
+    try {
+      const filas = ids.map(sid => ({
+        num_orden: this.state.numOrden,
+        servicio_id: sid,
+        estado: 'pendiente',
+        agregado_por: this.state.profile.id,
+      }));
+
+      const { error } = await supabaseClient
+        .from('servicios_orden')
+        .insert(filas);
+      if (error) throw error;
+
+      this.cerrarModales();
+      await this.cargarOrden();
+    } catch (err) {
+      Utils.log('Error agregando servicios:', err);
+      this.errorEnModal('agregar-jefe-error', err.message || 'No se pudieron agregar.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Agregar';
+    }
+  },
+
   // ==================== EVENTOS MODALES ====================
   bindEventosModales() {
     document.getElementById('btn-cancelar-empezar').addEventListener('click', () => this.cerrarModales());
@@ -893,6 +1329,41 @@ const OrdenDetalle = {
     if (headerToggle) {
       headerToggle.addEventListener('click', () => this.toggleInfoCard());
     }
+
+    // ----- Acciones de Jefe -----
+    const btnPrio = document.getElementById('btn-cambiar-prioridad');
+    if (btnPrio) btnPrio.addEventListener('click', () => this.abrirModalPrioridad());
+
+    const btnCancelar = document.getElementById('btn-cancelar-orden');
+    if (btnCancelar) btnCancelar.addEventListener('click', () => this.abrirModalCancelarOrden());
+
+    const btnAgregarSrv = document.getElementById('btn-agregar-servicio-jefe');
+    if (btnAgregarSrv) btnAgregarSrv.addEventListener('click', () => this.abrirModalAgregarJefe());
+
+    // Modal Prioridad
+    document.querySelectorAll('.prio-option').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.prio-option').forEach(b => b.classList.remove('prio-active'));
+        btn.classList.add('prio-active');
+        this.state.nuevaPrioridad = btn.dataset.prio;
+        const dif = this.state.nuevaPrioridad !== this.state.orden?.prioridad;
+        document.getElementById('btn-confirmar-prioridad').disabled = !dif;
+      });
+    });
+    document.getElementById('btn-cancelar-prioridad').addEventListener('click', () => this.cerrarModales());
+    document.getElementById('btn-confirmar-prioridad').addEventListener('click', () => this.confirmarPrioridad());
+
+    // Modal Cancelar Orden
+    document.getElementById('btn-cerrar-cancelar').addEventListener('click', () => this.cerrarModales());
+    document.getElementById('btn-confirmar-cancelar').addEventListener('click', () => this.confirmarCancelarOrden());
+
+    // Modal Reasignar
+    document.getElementById('btn-cancelar-reasignar').addEventListener('click', () => this.cerrarModales());
+    document.getElementById('btn-confirmar-reasignar').addEventListener('click', () => this.confirmarReasignar());
+
+    // Modal Agregar Servicio (Jefe)
+    document.getElementById('btn-cancelar-agregar-jefe').addEventListener('click', () => this.cerrarModales());
+    document.getElementById('btn-confirmar-agregar-jefe').addEventListener('click', () => this.confirmarAgregarJefe());
   },
 
   toggleInfoCard() {
@@ -909,13 +1380,17 @@ const OrdenDetalle = {
   },
 
   cerrarModales() {
-    ['modal-empezar', 'modal-pausar', 'modal-terminar', 'modal-agregar'].forEach(id => {
+    ['modal-empezar', 'modal-pausar', 'modal-terminar', 'modal-agregar',
+     'modal-prioridad', 'modal-cancelar-orden', 'modal-reasignar', 'modal-agregar-jefe'].forEach(id => {
       const m = document.getElementById(id);
       if (m) m.hidden = true;
     });
     this.state.servicioAccionId = null;
     this.state.motivoPausaSeleccionado = null;
     this.state.serviciosAgregar = new Set();
+    this.state.serviciosAgregarJefe = new Set();
+    this.state.tecnicoReasignar = null;
+    this.state.nuevaPrioridad = null;
   },
 
   errorEnModal(id, msg) {
