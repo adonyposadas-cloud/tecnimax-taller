@@ -568,36 +568,39 @@ const Admin = {
         statusClass = 'status-trabajando';
         cardClass = 'tec-trabajando';
 
-        // Mostrar TODOS los servicios activos en líneas separadas
+        // Mostrar TODOS los servicios activos con su cronómetro inline
         actividadHtml = serviciosActivos.map(sa => {
           const orden = this.state.ordenes.find(o => o.num_orden === sa.num_orden);
           const placa = orden ? orden.placa : '—';
           return `<div class="tecnico-actividad-linea">
                     <span class="placa-mini">${Utils.escapeHtml(placa)}</span>
-                    ${Utils.escapeHtml(this.nombreServicio(sa.servicio_id))}
+                    <span class="actividad-nombre">${Utils.escapeHtml(this.nombreServicio(sa.servicio_id))}</span>
+                    <span class="actividad-cronos" id="cron-${t.id}-${sa.id}">00:00:00</span>
                   </div>`;
         }).join('');
 
-        // Si hay pausados también, agregarlos atenuados
+        // Si hay pausados también, agregarlos atenuados con cronómetro de pausa
         if (serviciosPausados.length > 0) {
-          actividadHtml += `<div class="tecnico-actividad-linea atenuado">+ ${serviciosPausados.length} pausado${serviciosPausados.length !== 1 ? 's' : ''}</div>`;
+          actividadHtml += serviciosPausados.map(sp => {
+            const orden = this.state.ordenes.find(o => o.num_orden === sp.num_orden);
+            const placa = orden ? orden.placa : '—';
+            const pausa = this.pausaAbierta(sp.id);
+            const motivos = {
+              repuesto: 'repuesto', cambio_unidad: 'cambio unidad',
+              personal: 'personal', reasignacion_jefe: 'reasignación'
+            };
+            const motivo = pausa ? (motivos[pausa.motivo] || pausa.motivo) : '';
+            return `<div class="tecnico-actividad-linea atenuado">
+                      <span class="placa-mini">${Utils.escapeHtml(placa)}</span>
+                      <span class="actividad-nombre">${Utils.escapeHtml(this.nombreServicio(sp.servicio_id))}</span>
+                      ${motivo ? `<span class="motivo-tag">${motivo}</span>` : ''}
+                      <span class="actividad-cronos pausa-cronos-inline" id="pausa-cron-inline-${sp.id}" data-inicio="${pausa?.hora_pausa || ''}">--:--:--</span>
+                    </div>`;
+          }).join('');
         }
 
-        // Cronómetro: mostrar el del servicio más antiguo (el que arrancó primero)
-        const masAntiguo = serviciosActivos
-          .filter(s => s.hora_inicio)
-          .sort((a, b) => new Date(a.hora_inicio) - new Date(b.hora_inicio))[0];
-
-        if (masAntiguo) {
-          const sufijo = serviciosActivos.length > 1 ? `<div class="tecnico-multi">+${serviciosActivos.length - 1} más</div>` : '';
-          tiempoHtml = `
-            <div class="tecnico-tiempo-wrapper">
-              <div class="tecnico-tiempo" id="cron-${t.id}-${masAntiguo.id}">00:00:00</div>
-              ${sufijo}
-            </div>`;
-        } else {
-          tiempoHtml = '';
-        }
+        // No mostrar tiempo total en columna derecha (cada servicio tiene el suyo)
+        tiempoHtml = '';
       } else if (serviciosPausados.length > 0) {
         pausado++;
         estado = 'Pausado';
@@ -615,27 +618,13 @@ const Admin = {
           const motivo = pausa ? (motivos[pausa.motivo] || pausa.motivo) : '';
           return `<div class="tecnico-actividad-linea">
                     <span class="placa-mini">${Utils.escapeHtml(placa)}</span>
-                    ${Utils.escapeHtml(this.nombreServicio(sp.servicio_id))}
-                    ${motivo ? '<span class="motivo-tag">' + motivo + '</span>' : ''}
+                    <span class="actividad-nombre">${Utils.escapeHtml(this.nombreServicio(sp.servicio_id))}</span>
+                    ${motivo ? `<span class="motivo-tag">${motivo}</span>` : ''}
+                    <span class="actividad-cronos pausa-cronos-inline" id="pausa-cron-inline-${sp.id}" data-inicio="${pausa?.hora_pausa || ''}">--:--:--</span>
                   </div>`;
         }).join('');
 
-        // Cronómetro vivo de la pausa más antigua (la que más lleva pausada)
-        const pausaMasAntigua = serviciosPausados
-          .map(sp => ({ servicio: sp, pausa: this.pausaAbierta(sp.id) }))
-          .filter(x => x.pausa)
-          .sort((a, b) => new Date(a.pausa.hora_pausa) - new Date(b.pausa.hora_pausa))[0];
-
-        if (pausaMasAntigua) {
-          const sufijo = serviciosPausados.length > 1 ? `<div class="tecnico-multi">+${serviciosPausados.length - 1} más</div>` : '';
-          tiempoHtml = `
-            <div class="tecnico-tiempo-wrapper">
-              <div class="tecnico-pausa-cronos" id="pausa-cron-${pausaMasAntigua.servicio.id}" data-inicio="${pausaMasAntigua.pausa.hora_pausa}">Pausado --:--:--</div>
-              ${sufijo}
-            </div>`;
-        } else {
-          tiempoHtml = `<div class="tecnico-tiempo" style="color: var(--amarillo); font-size: 0.85rem;">PAUSADO</div>`;
-        }
+        tiempoHtml = '';
       } else {
         libre++;
         estado = 'Libre';
@@ -662,36 +651,33 @@ const Admin = {
     document.getElementById('tecnicos-stats').textContent =
       `${trabajando} trabajando · ${pausado} pausados · ${libre} libres`;
 
-    // Iniciar cronómetros para los técnicos trabajando (el más antiguo de cada uno)
+    // Iniciar cronómetros para TODOS los servicios activos y pausados
     tecnicos.forEach(t => {
+      // Servicios EN_PROGRESO: cronómetro de tiempo trabajado
       const serviciosActivos = this.state.servicios.filter(
         s => s.tecnico_id === t.id && s.estado === 'en_progreso'
       );
-      const masAntiguo = serviciosActivos
-        .filter(s => s.hora_inicio)
-        .sort((a, b) => new Date(a.hora_inicio) - new Date(b.hora_inicio))[0];
+      serviciosActivos.forEach(sa => {
+        if (sa.hora_inicio) {
+          this.iniciarCronometroTecnico(t.id, sa);
+        }
+      });
 
-      if (masAntiguo) {
-        this.iniciarCronometroTecnico(t.id, masAntiguo);
-      }
-
-      // Cronómetros de pausa
+      // Servicios PAUSADOS: cronómetro de tiempo pausado
       const serviciosPausados = this.state.servicios.filter(
         s => s.tecnico_id === t.id && s.estado === 'pausado'
       );
-      const pausaMasAntigua = serviciosPausados
-        .map(sp => ({ servicio: sp, pausa: this.pausaAbierta(sp.id) }))
-        .filter(x => x.pausa)
-        .sort((a, b) => new Date(a.pausa.hora_pausa) - new Date(b.pausa.hora_pausa))[0];
-
-      if (pausaMasAntigua) {
-        this.iniciarCronometroPausa(pausaMasAntigua.servicio.id, pausaMasAntigua.pausa.hora_pausa);
-      }
+      serviciosPausados.forEach(sp => {
+        const pausa = this.pausaAbierta(sp.id);
+        if (pausa) {
+          this.iniciarCronometroPausaInline(sp.id, pausa.hora_pausa);
+        }
+      });
     });
   },
 
-  iniciarCronometroPausa(servicioId, horaPausaIso) {
-    const elementId = 'pausa-cron-' + servicioId;
+  iniciarCronometroPausaInline(servicioId, horaPausaIso) {
+    const elementId = 'pausa-cron-inline-' + servicioId;
     const inicioMs = new Date(horaPausaIso).getTime();
     const UMBRAL_ALERTA_MS = 2 * 60 * 60 * 1000;  // 2 horas
 
@@ -700,18 +686,17 @@ const Admin = {
       const transcurridoMs = ahora - inicioMs;
       if (transcurridoMs < 0) {
         const el = document.getElementById(elementId);
-        if (el) el.textContent = 'Pausado --:--:--';
+        if (el) el.textContent = '--:--:--';
         return;
       }
       const totalSeg = Math.floor(transcurridoMs / 1000);
       const h = Math.floor(totalSeg / 3600);
       const m = Math.floor((totalSeg % 3600) / 60);
       const s = totalSeg % 60;
-      const fmt = `Pausado ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      const fmt = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
       const el = document.getElementById(elementId);
       if (el) {
         el.textContent = fmt;
-        // Alerta visual si supera 2 horas
         if (transcurridoMs > UMBRAL_ALERTA_MS) {
           el.classList.add('pausa-cronos-alerta');
         } else {
@@ -721,7 +706,7 @@ const Admin = {
     };
 
     update();
-    const key = 'pausa_' + servicioId;
+    const key = 'pausa_inline_' + servicioId;
     this.state.cronometrosPausa[key] = setInterval(update, 1000);
   },
 
@@ -902,38 +887,56 @@ const Admin = {
       }
     });
 
-    // Bindear toggle del detalle
-    cont.querySelectorAll('.prod-row-clickable').forEach(row => {
-      row.addEventListener('click', () => {
-        const tid = row.dataset.tecnico;
-        const detalle = document.getElementById('prod-detalle-' + tid);
-        const toggle = row.querySelector('.prod-toggle');
-        if (!detalle) return;
+    // EVENT DELEGATION: un solo listener en el contenedor que sobrevive re-renders
+    // Solo bindear si aún no se hizo (la primera vez)
+    if (!cont.dataset.boundDelegate) {
+      cont.dataset.boundDelegate = 'true';
+      cont.addEventListener('click', (e) => {
+        // Click en una fila clickeable
+        const row = e.target.closest('.prod-row-clickable');
+        if (row) {
+          // Si el click vino de un detalle interior, manejarlo aparte
+          const detalleItem = e.target.closest('.prod-detalle-item');
+          if (detalleItem) {
+            // Click en un servicio individual del detalle
+            const num = detalleItem.dataset.orden;
+            if (num) {
+              window.location.href = `orden-detalle.html?orden=${encodeURIComponent(num)}`;
+            }
+            return;
+          }
 
-        // Toggle por estado actual del DOM, no por estado guardado
-        const estaOculto = detalle.hidden;
-        if (estaOculto) {
-          detalle.hidden = false;
-          toggle.textContent = '▼';
-          row.classList.add('prod-row-expanded');
-          this.state.tecnicosExpandidos.add(tid);
-        } else {
-          detalle.hidden = true;
-          toggle.textContent = '▶';
-          row.classList.remove('prod-row-expanded');
-          this.state.tecnicosExpandidos.delete(tid);
+          // Click en el row de técnico → toggle del detalle
+          const tid = row.dataset.tecnico;
+          const detalle = document.getElementById('prod-detalle-' + tid);
+          const toggle = row.querySelector('.prod-toggle');
+          if (!detalle) return;
+
+          const estaOculto = detalle.hidden;
+          if (estaOculto) {
+            detalle.hidden = false;
+            if (toggle) toggle.textContent = '▼';
+            row.classList.add('prod-row-expanded');
+            this.state.tecnicosExpandidos.add(tid);
+          } else {
+            detalle.hidden = true;
+            if (toggle) toggle.textContent = '▶';
+            row.classList.remove('prod-row-expanded');
+            this.state.tecnicosExpandidos.delete(tid);
+          }
+          return;
+        }
+
+        // Click directo en un servicio del detalle (cuando no se enmarcó en row)
+        const detalleItem = e.target.closest('.prod-detalle-item');
+        if (detalleItem) {
+          const num = detalleItem.dataset.orden;
+          if (num) {
+            window.location.href = `orden-detalle.html?orden=${encodeURIComponent(num)}`;
+          }
         }
       });
-    });
-
-    // Click en cada detalle → al detalle de la orden
-    cont.querySelectorAll('.prod-detalle-item').forEach(item => {
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const num = item.dataset.orden;
-        if (num) window.location.href = `orden-detalle.html?orden=${encodeURIComponent(num)}`;
-      });
-    });
+    }
   },
 
   // ==================== 5. CANCELACIONES ====================
