@@ -52,8 +52,8 @@
       </section>
 
       <!-- Tarjeta principal -->
-      <section class="card">
-        <div class="card-header">
+      <section class="card card-collapsible" id="card-info">
+        <div class="card-header card-header-clickable" id="card-header-toggle">
           <div class="vehiculo-info">
             <div class="placa-grande" id="placa-grande">—</div>
             <div class="vehiculo-meta" id="vehiculo-meta">—</div>
@@ -62,9 +62,10 @@
             <span class="badge" id="badge-prioridad">—</span>
             <span class="badge" id="badge-estado">—</span>
           </div>
+          <div class="card-toggle-icon" id="card-toggle-icon">▼</div>
         </div>
 
-        <div class="card-body">
+        <div class="card-body card-body-collapsible" id="card-body-info" hidden>
           <div class="info-grid">
             <div class="info-item">
               <div class="info-label">N° Orden</div>
