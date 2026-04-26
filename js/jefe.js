@@ -26,6 +26,8 @@ const Jefe = {
     realtimeChannel: null,
     alertasMtto: [],     // Alertas de mantenimiento KM (Fase 4b)
     alertasExpandidas: false,
+    gruposWhatsapp: {},  // Cache de grupos (Fase 5b)
+    waToastTimer: null,
   },
 
   // ==================== INIT ====================
@@ -47,8 +49,10 @@ const Jefe = {
     document.getElementById('btn-logout').addEventListener('click', () => Auth.logout());
 
     await this.cargarDatosBase();
+    await this.cargarGruposWhatsapp();
     await this.cargarOrdenes();
     this.cargarAlertasMtto();
+    this.inyectarToastWa();
     this.bindEventos();
     this.activarRealtime();
   },
@@ -82,7 +86,196 @@ const Jefe = {
     }
   },
 
-  // ==================== ALERTAS DE MANTENIMIENTO (Fase 4b) ====================
+  // ==================== WHATSAPP TOAST (Fase 5b) ====================
+  async cargarGruposWhatsapp() {
+    try {
+      const { data, error } = await supabaseClient
+        .from('grupos_whatsapp')
+        .select('codigo, nombre, invite_link, activo')
+        .eq('activo', true);
+      if (error) throw error;
+      const map = {};
+      (data || []).forEach(g => { map[g.codigo] = g; });
+      this.state.gruposWhatsapp = map;
+    } catch (err) {
+      Utils.log('Error cargando grupos whatsapp (puede ser BD vieja):', err);
+      this.state.gruposWhatsapp = {};
+    }
+  },
+
+  // Inyecta el HTML del toast en el body si no existe (compartido con orden-detalle)
+  inyectarToastWa() {
+    if (document.getElementById('wa-toast')) return; // ya existe
+
+    const toast = document.createElement('div');
+    toast.id = 'wa-toast';
+    toast.className = 'wa-toast';
+    toast.hidden = true;
+    toast.innerHTML = `
+      <div class="wa-toast-card">
+        <div class="wa-toast-header">
+          <span class="wa-toast-icon">💬</span>
+          <div class="wa-toast-titulo" id="wa-toast-titulo">Avisar al grupo</div>
+          <button class="wa-toast-close" id="wa-toast-close" aria-label="Cerrar">✕</button>
+        </div>
+        <div class="wa-toast-mensaje" id="wa-toast-mensaje">—</div>
+        <div class="wa-toast-hint" id="wa-toast-hint" hidden></div>
+        <div class="wa-toast-actions">
+          <button class="wa-toast-btn-secundario" id="wa-toast-cerrar">Más tarde</button>
+          <button class="wa-toast-btn-primario" id="wa-toast-avisar">📱 Avisar ahora</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(toast);
+
+    // Inyectar estilos si no existen
+    if (!document.getElementById('wa-toast-styles')) {
+      const styleEl = document.createElement('style');
+      styleEl.id = 'wa-toast-styles';
+      styleEl.textContent = `
+        .wa-toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+          z-index: 9999; max-width: 460px; width: calc(100% - 32px);
+          animation: wa-slide-up 0.25s ease-out; }
+        @keyframes wa-slide-up { from { opacity: 0; transform: translateX(-50%) translateY(30px); }
+          to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+        .wa-toast.cerrando { animation: wa-slide-down 0.2s ease-in forwards; }
+        @keyframes wa-slide-down { to { opacity: 0; transform: translateX(-50%) translateY(30px); } }
+        .wa-toast-card { background: #1a3a5e; border: 1px solid rgba(37,211,102,0.4);
+          border-radius: 8px; padding: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+        .wa-toast-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+        .wa-toast-icon { font-size: 1.4rem; }
+        .wa-toast-titulo { flex: 1; font-weight: 600; color: var(--text); font-size: 0.95rem; }
+        .wa-toast-close { background: transparent; border: none; color: var(--text-muted);
+          cursor: pointer; font-size: 1.1rem; padding: 4px 8px; }
+        .wa-toast-close:hover { color: var(--text); }
+        .wa-toast-mensaje { background: rgba(0,0,0,0.25); border-radius: 6px; padding: 8px 10px;
+          font-size: 0.8rem; color: var(--text-muted); max-height: 90px; overflow-y: auto;
+          white-space: pre-wrap; font-family: var(--font-mono, monospace); margin-bottom: 8px;
+          line-height: 1.4; }
+        .wa-toast-hint { font-size: 0.78rem; color: #25d366; padding: 6px 10px;
+          background: rgba(37,211,102,0.10); border-radius: 6px; margin-bottom: 8px; }
+        .wa-toast-actions { display: flex; gap: 8px; justify-content: flex-end; }
+        .wa-toast-btn-secundario { background: transparent; border: 1px solid var(--border);
+          color: var(--text-muted); padding: 8px 14px; border-radius: 6px; cursor: pointer;
+          font-size: 0.85rem; }
+        .wa-toast-btn-secundario:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+        .wa-toast-btn-primario { background: #25d366; color: white; border: none;
+          padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; font-weight: 600; }
+        .wa-toast-btn-primario:hover { background: #1fb555; }
+      `;
+      document.head.appendChild(styleEl);
+    }
+
+    // Bind eventos
+    document.getElementById('wa-toast-close').addEventListener('click', () => this.cerrarToastWa());
+    document.getElementById('wa-toast-cerrar').addEventListener('click', () => this.cerrarToastWa());
+    document.getElementById('wa-toast-avisar').addEventListener('click', () => this.confirmarAvisarWa());
+  },
+
+  mostrarToastWhatsapp(grupoCodigo, mensaje) {
+    const grupo = this.state.gruposWhatsapp[grupoCodigo];
+    if (!grupo) {
+      Utils.log('Grupo whatsapp no configurado:', grupoCodigo);
+      return;
+    }
+    this._waCtx = { grupo, mensaje };
+
+    document.getElementById('wa-toast-titulo').textContent = `Avisar a ${grupo.nombre}`;
+    document.getElementById('wa-toast-mensaje').textContent = mensaje;
+    document.getElementById('wa-toast-hint').hidden = true;
+    const avisar = document.getElementById('wa-toast-avisar');
+    avisar.disabled = false;
+    avisar.textContent = '📱 Avisar ahora';
+
+    const toast = document.getElementById('wa-toast');
+    toast.classList.remove('cerrando');
+    toast.hidden = false;
+
+    if (this.state.waToastTimer) clearTimeout(this.state.waToastTimer);
+    this.state.waToastTimer = setTimeout(() => this.cerrarToastWa(), 30000);
+  },
+
+  cerrarToastWa() {
+    const toast = document.getElementById('wa-toast');
+    if (!toast) return;
+    toast.classList.add('cerrando');
+    setTimeout(() => { toast.hidden = true; toast.classList.remove('cerrando'); }, 200);
+    if (this.state.waToastTimer) {
+      clearTimeout(this.state.waToastTimer);
+      this.state.waToastTimer = null;
+    }
+    this._waCtx = null;
+  },
+
+  async confirmarAvisarWa() {
+    if (!this._waCtx) return;
+    const { grupo, mensaje } = this._waCtx;
+
+    let copiado = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(mensaje);
+        copiado = true;
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = mensaje;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        copiado = document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+    } catch (err) {
+      Utils.log('Error copiando al portapapeles:', err);
+    }
+
+    const hint = document.getElementById('wa-toast-hint');
+    hint.hidden = false;
+    hint.textContent = copiado
+      ? '✅ Mensaje copiado. Pégalo en el grupo y envía.'
+      : '⚠️ No se pudo copiar. Selecciona el texto manualmente.';
+
+    setTimeout(() => { window.open(grupo.invite_link, '_blank'); }, 300);
+
+    if (this.state.waToastTimer) clearTimeout(this.state.waToastTimer);
+    this.state.waToastTimer = setTimeout(() => this.cerrarToastWa(), 8000);
+  },
+
+  fmtHora() {
+    return new Date().toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  },
+
+  plantillaNuevaOrden(ordenInfo) {
+    const o = ordenInfo;
+    const vehiculoTxt = o.marca || o.modelo
+      ? `${o.marca || ''} ${o.modelo || ''}${o.anio ? ' ' + o.anio : ''}`.trim()
+      : '—';
+    const prioridadTxt = o.prioridad === 'urgente' ? '🔴 URGENTE' : 'Normal';
+
+    // Servicios solicitados (max 5; si hay más, mostrar +N más)
+    const todos = (o.servicios_nombres || []);
+    const visibles = todos.slice(0, 5);
+    const restantes = todos.length - visibles.length;
+    let listado = visibles.map(n => '• ' + n).join('\n');
+    if (restantes > 0) listado += `\n+${restantes} más`;
+
+    return `🆕 TECNIMAX Taller — Nueva orden
+
+${o.placa} · ${o.num_orden}
+Vehículo: ${vehiculoTxt}
+Prioridad: ${prioridadTxt}
+
+Servicios solicitados:
+${listado}
+
+Motivo: ${o.motivo || '—'}
+Hora: ${this.fmtHora()}
+
+Disponibles para tomar.`;
+  },
+
+
   async cargarAlertasMtto() {
     try {
       const { data, error } = await supabaseClient.rpc('f_alertas_flota');
@@ -738,6 +931,29 @@ const Jefe = {
       Utils.log('Orden creada:', num_orden);
       this.cerrarModal();
       await this.cargarOrdenes();
+
+      // Disparar toast WhatsApp al grupo de técnicos (Fase 5b)
+      // Resolver nombres de servicios desde el catálogo
+      const nombresServicios = servicios
+        .map(sid => (this.state.catalogo.find(c => c.id === sid)?.nombre))
+        .filter(Boolean);
+
+      // Datos del vehículo (puede venir del cache o del formulario)
+      const vehCache = this.state.vehiculos[placa] || {};
+      const marca = vehCache.marca || document.getElementById('marca').value.trim().toUpperCase() || '';
+      const modeloRaw = vehCache.modelo || document.getElementById('modelo').value.trim().toUpperCase() || '';
+      const anio = vehCache.anio || null;
+
+      this.mostrarToastWhatsapp('tecnicos', this.plantillaNuevaOrden({
+        num_orden,
+        placa,
+        marca,
+        modelo: modeloRaw,
+        anio,
+        prioridad: this.state.prioridad,
+        motivo,
+        servicios_nombres: nombresServicios,
+      }));
 
     } catch (err) {
       Utils.log('Error creando orden:', err);
