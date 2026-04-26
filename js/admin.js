@@ -150,6 +150,13 @@ const Admin = {
   // ==================== CARGA DE DATOS ====================
   async cargarTodo() {
     try {
+      // Recalcular rango antes de cargar para que fechaHasta refleje el "ahora" real.
+      // Sin esto, el polling y visibilitychange usan una fechaHasta congelada al
+      // momento de cargar la página, lo que hace que servicios completados después
+      // de ese instante no entren en KPIs ni Productividad hasta cambiar de pestaña.
+      this.calcularRango();
+      this.actualizarRangoInfo();
+
       await Promise.all([
         this.cargarCatalogo(),
         this.cargarUsuarios(),
