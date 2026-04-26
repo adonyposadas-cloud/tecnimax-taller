@@ -417,9 +417,24 @@ const OrdenDetalle = {
       html += `<div class="tecnico-tag otro">⏵ ${u ? Utils.escapeHtml(u.nombre) : 'Otro técnico'} trabajando</div>`;
     } else if (s.estado === 'pausado') {
       const pausa = this.pausaAbierta(s.id);
-      const motivos = { repuesto: 'Esperando repuesto', cambio_unidad: 'Cambio de unidad', personal: 'Pausa personal' };
+      const motivos = {
+        repuesto: 'Esperando repuesto',
+        cambio_unidad: 'Cambio de unidad',
+        personal: 'Pausa personal',
+        reasignacion_jefe: 'Reasignado por el Jefe'
+      };
       const motivo = pausa ? (motivos[pausa.motivo] || pausa.motivo) : 'Pausado';
-      const detalle = pausa?.detalle_repuesto ? `<div class="pausa-info-detalle">${Utils.escapeHtml(pausa.detalle_repuesto)}</div>` : '';
+
+      let detalle = '';
+      if (pausa?.detalle_repuesto) {
+        // Si es reasignación, el detalle es la nota de quién reasignó
+        if (pausa.motivo === 'reasignacion_jefe' && esMio) {
+          detalle = `<div class="pausa-info-detalle">📋 ${Utils.escapeHtml(pausa.detalle_repuesto)} — Te toca este servicio</div>`;
+        } else {
+          detalle = `<div class="pausa-info-detalle">${Utils.escapeHtml(pausa.detalle_repuesto)}</div>`;
+        }
+      }
+
       html += `
         <div class="pausa-info-box">
           <div class="pausa-info-motivo">${motivo}</div>
@@ -428,7 +443,7 @@ const OrdenDetalle = {
       `;
       if (!esMio) {
         const u = this.state.tecnicos[s.tecnico_id];
-        html += `<div class="tecnico-tag otro">${u ? Utils.escapeHtml(u.nombre) : 'Otro técnico'}</div>`;
+        html += `<div class="tecnico-tag otro">Asignado a ${u ? Utils.escapeHtml(u.nombre) : 'otro técnico'}</div>`;
       }
     } else if (s.estado === 'completado') {
       const u = this.state.tecnicos[s.tecnico_id];
@@ -1085,7 +1100,6 @@ const OrdenDetalle = {
       Utils.log('Error cargando técnicos:', err);
     }
 
-    document.getElementById('reasignar-conservar-tiempo').checked = true;
     document.getElementById('btn-confirmar-reasignar').disabled = true;
     document.getElementById('reasignar-error').hidden = true;
     this.state.tecnicoReasignar = null;
@@ -1097,27 +1111,59 @@ const OrdenDetalle = {
     const nuevoTec = this.state.tecnicoReasignar;
     if (!sid || !nuevoTec) return;
 
-    const conservarTiempo = document.getElementById('reasignar-conservar-tiempo').checked;
     const s = this.state.servicios.find(x => x.id === sid);
     if (!s) return;
+
+    const tecnicoAnteriorObj = this.state.tecnicos[s.tecnico_id];
+    const tecnicoAnteriorNombre = tecnicoAnteriorObj?.nombre || 'técnico anterior';
+    const jefeNombre = this.state.profile.nombre || 'jefe';
 
     const btn = document.getElementById('btn-confirmar-reasignar');
     btn.disabled = true;
     btn.textContent = 'Reasignando...';
 
     try {
-      const updateData = { tecnico_id: nuevoTec };
+      const ahora = new Date().toISOString();
 
-      if (!conservarTiempo) {
-        // Reset cronómetro
-        updateData.hora_inicio = new Date().toISOString();
+      // Caso 1: estaba EN_PROGRESO → cerrar tiempo trabajado y crear pausa de reasignación
+      // Caso 2: estaba PAUSADO → cerrar la pausa actual y abrir nueva pausa de reasignación
+      // En ambos casos: el servicio queda en PAUSADO con motivo reasignacion_jefe asignado al NUEVO técnico
+
+      if (s.estado === 'pausado') {
+        // Cerrar la pausa que estaba abierta (cualquiera que sea su motivo)
+        await supabaseClient
+          .from('historial_pausas')
+          .update({ hora_reanudacion: ahora })
+          .eq('servicio_orden_id', sid)
+          .is('hora_reanudacion', null);
       }
 
-      const { error } = await supabaseClient
+      // Crear nueva pausa con motivo 'reasignacion_jefe'
+      // Importante: el tecnico_id de la pausa es el JEFE (quien reasigna), no el técnico
+      // Detalle dice quién es el técnico saliente y entrante
+      const detalleNota = `Reasignado de ${tecnicoAnteriorNombre} por ${jefeNombre}`;
+
+      const { error: pErr } = await supabaseClient
+        .from('historial_pausas')
+        .insert({
+          servicio_orden_id: sid,
+          tecnico_id: this.state.profile.id,   // el jefe que reasigna
+          motivo: 'reasignacion_jefe',
+          detalle_repuesto: detalleNota,
+          hora_pausa: ahora,
+        });
+      if (pErr) throw pErr;
+
+      // Actualizar el servicio: nuevo técnico, estado pausado
+      // No tocamos hora_inicio (mantiene cuando empezó originalmente)
+      const { error: sErr } = await supabaseClient
         .from('servicios_orden')
-        .update(updateData)
+        .update({
+          tecnico_id: nuevoTec,
+          estado: 'pausado',
+        })
         .eq('id', sid);
-      if (error) throw error;
+      if (sErr) throw sErr;
 
       this.cerrarModales();
       await this.cargarOrden();
