@@ -33,6 +33,8 @@ const OrdenDetalle = {
     servicioAccionId: null,   // id del servicio sobre el que se hace acción
     serviciosAgregar: new Set(),
     alertasMtto: [],   // Alertas de mantenimiento del vehículo (Fase 4b)
+    gruposWhatsapp: {}, // Cache de grupos {codigo: {nombre, invite_link}} (Fase 5b)
+    waToastTimer: null,
   },
 
   // ==================== INIT ====================
@@ -55,8 +57,10 @@ const OrdenDetalle = {
     document.getElementById('btn-back').addEventListener('click', () => this.volver());
 
     this.bindEventosModales();
+    this.bindEventosToastWa();
 
     await this.cargarCatalogo();
+    await this.cargarGruposWhatsapp();
     await this.cargarOrden();
     this.activarRealtime();
   },
@@ -67,6 +71,177 @@ const OrdenDetalle = {
     else if (rol === 'tecnico') window.location.href = 'tecnico.html';
     else if (rol === 'admin') window.location.href = 'admin.html';
     else history.back();
+  },
+
+  // ==================== WHATSAPP TOAST (Fase 5b) ====================
+  async cargarGruposWhatsapp() {
+    try {
+      const { data, error } = await supabaseClient
+        .from('grupos_whatsapp')
+        .select('codigo, nombre, invite_link, activo')
+        .eq('activo', true);
+      if (error) throw error;
+      const map = {};
+      (data || []).forEach(g => { map[g.codigo] = g; });
+      this.state.gruposWhatsapp = map;
+    } catch (err) {
+      Utils.log('Error cargando grupos whatsapp (puede ser BD vieja):', err);
+      this.state.gruposWhatsapp = {};
+    }
+  },
+
+  bindEventosToastWa() {
+    const cerrar = document.getElementById('wa-toast-close');
+    const masTarde = document.getElementById('wa-toast-cerrar');
+    const avisar = document.getElementById('wa-toast-avisar');
+    if (cerrar) cerrar.addEventListener('click', () => this.cerrarToastWa());
+    if (masTarde) masTarde.addEventListener('click', () => this.cerrarToastWa());
+    if (avisar) avisar.addEventListener('click', () => this.confirmarAvisarWa());
+  },
+
+  // Muestra el toast con un mensaje listo para enviar al grupo dado.
+  // grupoCodigo: 'compras' | 'jefes' | 'tecnicos'
+  // mensaje: texto pre-armado a enviar
+  mostrarToastWhatsapp(grupoCodigo, mensaje) {
+    const grupo = this.state.gruposWhatsapp[grupoCodigo];
+    if (!grupo) {
+      Utils.log('Grupo whatsapp no configurado:', grupoCodigo);
+      return; // Falla silenciosa: si no hay grupo configurado, no se muestra el toast
+    }
+
+    // Guardar contexto del toast
+    this._waCtx = { grupo, mensaje };
+
+    document.getElementById('wa-toast-titulo').textContent = `Avisar a ${grupo.nombre}`;
+    document.getElementById('wa-toast-mensaje').textContent = mensaje;
+    document.getElementById('wa-toast-hint').hidden = true;
+    const avisar = document.getElementById('wa-toast-avisar');
+    avisar.disabled = false;
+    avisar.textContent = '📱 Avisar ahora';
+
+    const toast = document.getElementById('wa-toast');
+    toast.classList.remove('cerrando');
+    toast.hidden = false;
+
+    // Auto-cerrar a los 30 segundos si el usuario no actuó
+    if (this.state.waToastTimer) clearTimeout(this.state.waToastTimer);
+    this.state.waToastTimer = setTimeout(() => this.cerrarToastWa(), 30000);
+  },
+
+  cerrarToastWa() {
+    const toast = document.getElementById('wa-toast');
+    if (!toast) return;
+    toast.classList.add('cerrando');
+    setTimeout(() => { toast.hidden = true; toast.classList.remove('cerrando'); }, 200);
+    if (this.state.waToastTimer) {
+      clearTimeout(this.state.waToastTimer);
+      this.state.waToastTimer = null;
+    }
+    this._waCtx = null;
+  },
+
+  async confirmarAvisarWa() {
+    if (!this._waCtx) return;
+    const { grupo, mensaje } = this._waCtx;
+
+    // 1. Copiar al portapapeles (con fallback)
+    let copiado = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(mensaje);
+        copiado = true;
+      } else {
+        // Fallback antiguo
+        const ta = document.createElement('textarea');
+        ta.value = mensaje;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        copiado = document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+    } catch (err) {
+      Utils.log('Error copiando al portapapeles:', err);
+    }
+
+    // 2. Mostrar hint según resultado
+    const hint = document.getElementById('wa-toast-hint');
+    hint.hidden = false;
+    hint.textContent = copiado
+      ? '✅ Mensaje copiado. Pégalo en el grupo y envía.'
+      : '⚠️ No se pudo copiar. Selecciona el texto manualmente.';
+
+    // 3. Abrir el grupo de WhatsApp en nueva pestaña/app
+    // Pequeño delay para que el usuario vea el hint antes de cambiar de app
+    setTimeout(() => {
+      window.open(grupo.invite_link, '_blank');
+    }, 300);
+
+    // 4. Auto-cerrar el toast a los 8 segundos (le da tiempo al usuario)
+    if (this.state.waToastTimer) clearTimeout(this.state.waToastTimer);
+    this.state.waToastTimer = setTimeout(() => this.cerrarToastWa(), 8000);
+  },
+
+  // ====== Plantillas de mensaje ======
+  fmtHora(fecha) {
+    const d = fecha ? new Date(fecha) : new Date();
+    return d.toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  },
+
+  nombreServicio(servicioId) {
+    const cat = (this.state.serviciosCatalogo || []).find(c => c.id === servicioId);
+    return cat ? cat.nombre : 'Servicio';
+  },
+
+  plantillaPausaRepuesto(servicioOrden, detalleRepuesto) {
+    const o = this.state.orden || {};
+    const nombreServ = this.nombreServicio(servicioOrden.servicio_id);
+    const tecnico = this.state.profile.nombre || '—';
+    return `🔧 TECNIMAX Taller
+
+Necesito repuesto para:
+${o.placa || '—'} · ${o.num_orden || '—'}
+
+Servicio: ${nombreServ}
+Repuesto: ${detalleRepuesto || '(sin detalle)'}
+
+Técnico: ${tecnico}
+Hora: ${this.fmtHora()}`;
+  },
+
+  plantillaServicioTerminado(servicioOrden) {
+    const o = this.state.orden || {};
+    const nombreServ = this.nombreServicio(servicioOrden.servicio_id);
+    const tecnico = this.state.profile.nombre || '—';
+    const tiempoMin = servicioOrden.tiempo_real_min;
+    const tiempoTxt = tiempoMin != null ? `${tiempoMin} min` : '—';
+    return `✅ TECNIMAX Taller
+
+Servicio terminado:
+${o.placa || '—'} · ${o.num_orden || '—'}
+
+Servicio: ${nombreServ}
+Tiempo: ${tiempoTxt}
+Técnico: ${tecnico}
+
+Disponible para el siguiente trabajo.`;
+  },
+
+  plantillaPausaCambioUnidad(servicioOrden) {
+    const o = this.state.orden || {};
+    const nombreServ = this.nombreServicio(servicioOrden.servicio_id);
+    const tecnico = this.state.profile.nombre || '—';
+    return `🔧 TECNIMAX Taller
+
+Necesito mover unidad:
+${o.placa || '—'} · ${o.num_orden || '—'}
+
+Servicio pausado: ${nombreServ}
+Motivo: necesito acceso a otra zona
+
+Técnico: ${tecnico}
+Hora: ${this.fmtHora()}`;
   },
 
   // ==================== CATÁLOGO ====================
@@ -798,6 +973,9 @@ const OrdenDetalle = {
       return;
     }
 
+    // Capturar el servicio_orden ANTES de recargar (para usar en la plantilla)
+    const servicioParaToast = (this.state.servicios || []).find(s => s.id === sid);
+
     const btn = document.getElementById('btn-confirmar-pausar');
     btn.disabled = true;
     btn.textContent = 'Pausando...';
@@ -825,6 +1003,16 @@ const OrdenDetalle = {
 
       this.cerrarModales();
       await this.cargarOrden();
+
+      // 3. Disparar toast WhatsApp según motivo (Fase 5b)
+      if (servicioParaToast) {
+        if (motivo === 'repuesto') {
+          this.mostrarToastWhatsapp('compras', this.plantillaPausaRepuesto(servicioParaToast, detalle));
+        } else if (motivo === 'cambio_unidad') {
+          this.mostrarToastWhatsapp('jefes', this.plantillaPausaCambioUnidad(servicioParaToast));
+        }
+        // motivo === 'personal' no dispara toast
+      }
     } catch (err) {
       Utils.log('Error pausando:', err);
       this.errorEnModal('pausa-error', err.message || 'No se pudo pausar.');
@@ -990,6 +1178,11 @@ const OrdenDetalle = {
 
       this.cerrarModales();
       await this.cargarOrden();
+
+      // Disparar toast WhatsApp al jefe (Fase 5b)
+      // Construir un objeto con el tiempo real para usarlo en la plantilla
+      const servicioParaToast = { ...s, tiempo_real_min: tiempoMin };
+      this.mostrarToastWhatsapp('jefes', this.plantillaServicioTerminado(servicioParaToast));
     } catch (err) {
       Utils.log('Error terminando:', err);
       this.errorEnModal('terminar-error', err.message || 'No se pudo terminar.');
