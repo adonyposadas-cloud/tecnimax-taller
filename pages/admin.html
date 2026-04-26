@@ -40,25 +40,30 @@
 
     <!-- KPIs -->
     <section class="kpis-grid">
-      <div class="kpi-card">
+      <div class="kpi-card kpi-card-clickable" data-kpi="en-taller">
         <div class="kpi-label">En taller ahora</div>
         <div class="kpi-value" id="kpi-en-taller">—</div>
+        <div class="kpi-hint">Click para ver</div>
       </div>
-      <div class="kpi-card">
+      <div class="kpi-card kpi-card-clickable" data-kpi="en-proceso">
         <div class="kpi-label">En proceso</div>
         <div class="kpi-value kpi-info" id="kpi-en-proceso">—</div>
+        <div class="kpi-hint">Click para ver</div>
       </div>
-      <div class="kpi-card">
+      <div class="kpi-card kpi-card-clickable" data-kpi="pausados">
         <div class="kpi-label">Pausados</div>
         <div class="kpi-value kpi-warning" id="kpi-pausados">—</div>
+        <div class="kpi-hint">Click para ver</div>
       </div>
-      <div class="kpi-card">
+      <div class="kpi-card kpi-card-clickable" data-kpi="ingresos">
         <div class="kpi-label">Ingresos</div>
         <div class="kpi-value" id="kpi-ingresos">—</div>
+        <div class="kpi-hint">Click para ver</div>
       </div>
-      <div class="kpi-card">
+      <div class="kpi-card kpi-card-clickable" data-kpi="completados">
         <div class="kpi-label">Completados</div>
         <div class="kpi-value kpi-success" id="kpi-completados">—</div>
+        <div class="kpi-hint">Click para ver</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Tiempo promedio</div>
@@ -112,6 +117,20 @@
     </section>
 
   </main>
+
+  <!-- ============= MODAL KPI DETALLE ============= -->
+  <div id="kpi-modal" class="kpi-modal" hidden>
+    <div class="kpi-modal-backdrop" id="kpi-modal-backdrop"></div>
+    <div class="kpi-modal-card">
+      <header class="kpi-modal-header">
+        <h2 class="kpi-modal-title" id="kpi-modal-title">—</h2>
+        <button class="kpi-modal-close" id="kpi-modal-close">✕</button>
+      </header>
+      <div class="kpi-modal-body" id="kpi-modal-list">
+        <div class="empty-state"><p>Cargando...</p></div>
+      </div>
+    </div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../js/config.js"></script>
