@@ -31,6 +31,8 @@ const Admin = {
     realtimeChannel: null,
     pollingInterval: null,
     cronometros: {},  // { tecnicoId_servicioId: intervalId }
+    cronometrosPausa: {},  // { servicioId: intervalId } - cronómetros de pausas en admin
+    tecnicosExpandidos: new Set(),  // ids de técnicos con productividad expandida
   },
 
   // ==================== INIT ====================
@@ -313,22 +315,39 @@ const Admin = {
       } else {
         html = ordenes.map(o => {
           const serviciosOrden = this.state.servicios.filter(s => s.num_orden === o.num_orden);
+          const total = serviciosOrden.length;
           const enProc = serviciosOrden.filter(s => s.estado === 'en_progreso').length;
           const pau = serviciosOrden.filter(s => s.estado === 'pausado').length;
           const pen = serviciosOrden.filter(s => s.estado === 'pendiente').length;
           const com = serviciosOrden.filter(s => s.estado === 'completado').length;
+          const can = serviciosOrden.filter(s => s.estado === 'cancelado').length;
+
           const prio = o.prioridad === 'urgente'
             ? '<span class="kpi-badge kpi-badge-urgente">Urgente</span>' : '';
+
+          // Fracción coloreada: completados / total (excluyendo cancelados)
+          const totalActivos = total - can;
+          const fraccionHtml = totalActivos > 0
+            ? `<span class="progreso-fraccion">
+                 <span class="prog-num prog-num-ok">${com}</span><span class="prog-sep">/</span><span class="prog-num prog-num-total">${totalActivos}</span>
+                 <span class="prog-label">servicios</span>
+               </span>`
+            : '';
+
           return `
             <div class="kpi-item" data-orden="${o.num_orden}">
               <div class="kpi-item-info">
-                <div class="kpi-item-titulo">${Utils.escapeHtml(o.placa)} · ${o.num_orden} ${prio}</div>
+                <div class="kpi-item-titulo">
+                  ${Utils.escapeHtml(o.placa)} · ${o.num_orden} ${prio}
+                  ${fraccionHtml}
+                </div>
                 <div class="kpi-item-meta">${Utils.escapeHtml(o.motivo || 'Sin motivo')}</div>
                 <div class="kpi-item-progress">
-                  ${enProc > 0 ? `<span class="prog-tag prog-en-progreso">${enProc} en curso</span>` : ''}
-                  ${pau > 0 ? `<span class="prog-tag prog-pausado">${pau} pausado${pau !== 1 ? 's' : ''}</span>` : ''}
-                  ${pen > 0 ? `<span class="prog-tag prog-pendiente">${pen} pendiente${pen !== 1 ? 's' : ''}</span>` : ''}
-                  ${com > 0 ? `<span class="prog-tag prog-completado">${com} completado${com !== 1 ? 's' : ''}</span>` : ''}
+                  ${com > 0 ? `<span class="prog-tag prog-completado">✓ ${com} completado${com !== 1 ? 's' : ''}</span>` : ''}
+                  ${enProc > 0 ? `<span class="prog-tag prog-en-progreso">▶ ${enProc} en curso</span>` : ''}
+                  ${pau > 0 ? `<span class="prog-tag prog-pausado">‖ ${pau} pausado${pau !== 1 ? 's' : ''}</span>` : ''}
+                  ${pen > 0 ? `<span class="prog-tag prog-pendiente">⏳ ${pen} pendiente${pen !== 1 ? 's' : ''}</span>` : ''}
+                  ${can > 0 ? `<span class="prog-tag prog-cancelado">✗ ${can} cancelado${can !== 1 ? 's' : ''}</span>` : ''}
                 </div>
               </div>
             </div>
@@ -420,11 +439,22 @@ const Admin = {
             const fecha = this.formatearFecha(o.cerrada_en);
             const serviciosOrden = this.state.servicios.filter(s => s.num_orden === o.num_orden);
             const tiempoTotal = serviciosOrden.reduce((acc, s) => acc + (s.tiempo_real_min || 0), 0);
+            const completados = serviciosOrden.filter(s => s.estado === 'completado').length;
+            const cancelados = serviciosOrden.filter(s => s.estado === 'cancelado').length;
+            const totalActivos = serviciosOrden.length - cancelados;
+
+            const fraccionHtml = totalActivos > 0
+              ? `<span class="progreso-fraccion">
+                   <span class="prog-num prog-num-ok">${completados}</span><span class="prog-sep">/</span><span class="prog-num prog-num-ok">${totalActivos}</span>
+                   <span class="prog-label">servicios</span>
+                 </span>`
+              : '';
+
             return `
               <div class="kpi-item" data-orden="${o.num_orden}">
                 <div class="kpi-item-info">
-                  <div class="kpi-item-titulo">${Utils.escapeHtml(o.placa)} · ${o.num_orden}</div>
-                  <div class="kpi-item-meta">Completada ${fecha} · ${serviciosOrden.length} servicios · ${tiempoTotal} min total</div>
+                  <div class="kpi-item-titulo">${Utils.escapeHtml(o.placa)} · ${o.num_orden} ${fraccionHtml}</div>
+                  <div class="kpi-item-meta">Completada ${fecha} · ${tiempoTotal} min total${cancelados > 0 ? ` · ${cancelados} cancelado${cancelados !== 1 ? 's' : ''}` : ''}</div>
                 </div>
               </div>
             `;
@@ -504,9 +534,11 @@ const Admin = {
 
   // ==================== 3. TÉCNICOS EN VIVO ====================
   renderTecnicos() {
-    // Detener cronómetros viejos
+    // Detener cronómetros viejos (servicios en curso + pausas)
     Object.values(this.state.cronometros).forEach(i => clearInterval(i));
+    Object.values(this.state.cronometrosPausa).forEach(i => clearInterval(i));
     this.state.cronometros = {};
+    this.state.cronometrosPausa = {};
 
     const tecnicos = this.state.usuarios.filter(u => u.rol === 'tecnico');
     const cont = document.getElementById('tecnicos-list');
@@ -588,8 +620,22 @@ const Admin = {
                   </div>`;
         }).join('');
 
-        const sufijo = serviciosPausados.length > 1 ? `<div class="tecnico-multi">${serviciosPausados.length} servicios</div>` : '';
-        tiempoHtml = `<div class="tecnico-tiempo" style="color: var(--amarillo); font-size: 0.85rem;">PAUSADO</div>${sufijo}`;
+        // Cronómetro vivo de la pausa más antigua (la que más lleva pausada)
+        const pausaMasAntigua = serviciosPausados
+          .map(sp => ({ servicio: sp, pausa: this.pausaAbierta(sp.id) }))
+          .filter(x => x.pausa)
+          .sort((a, b) => new Date(a.pausa.hora_pausa) - new Date(b.pausa.hora_pausa))[0];
+
+        if (pausaMasAntigua) {
+          const sufijo = serviciosPausados.length > 1 ? `<div class="tecnico-multi">+${serviciosPausados.length - 1} más</div>` : '';
+          tiempoHtml = `
+            <div class="tecnico-tiempo-wrapper">
+              <div class="tecnico-pausa-cronos" id="pausa-cron-${pausaMasAntigua.servicio.id}" data-inicio="${pausaMasAntigua.pausa.hora_pausa}">Pausado --:--:--</div>
+              ${sufijo}
+            </div>`;
+        } else {
+          tiempoHtml = `<div class="tecnico-tiempo" style="color: var(--amarillo); font-size: 0.85rem;">PAUSADO</div>`;
+        }
       } else {
         libre++;
         estado = 'Libre';
@@ -628,7 +674,55 @@ const Admin = {
       if (masAntiguo) {
         this.iniciarCronometroTecnico(t.id, masAntiguo);
       }
+
+      // Cronómetros de pausa
+      const serviciosPausados = this.state.servicios.filter(
+        s => s.tecnico_id === t.id && s.estado === 'pausado'
+      );
+      const pausaMasAntigua = serviciosPausados
+        .map(sp => ({ servicio: sp, pausa: this.pausaAbierta(sp.id) }))
+        .filter(x => x.pausa)
+        .sort((a, b) => new Date(a.pausa.hora_pausa) - new Date(b.pausa.hora_pausa))[0];
+
+      if (pausaMasAntigua) {
+        this.iniciarCronometroPausa(pausaMasAntigua.servicio.id, pausaMasAntigua.pausa.hora_pausa);
+      }
     });
+  },
+
+  iniciarCronometroPausa(servicioId, horaPausaIso) {
+    const elementId = 'pausa-cron-' + servicioId;
+    const inicioMs = new Date(horaPausaIso).getTime();
+    const UMBRAL_ALERTA_MS = 2 * 60 * 60 * 1000;  // 2 horas
+
+    const update = () => {
+      const ahora = Date.now();
+      const transcurridoMs = ahora - inicioMs;
+      if (transcurridoMs < 0) {
+        const el = document.getElementById(elementId);
+        if (el) el.textContent = 'Pausado --:--:--';
+        return;
+      }
+      const totalSeg = Math.floor(transcurridoMs / 1000);
+      const h = Math.floor(totalSeg / 3600);
+      const m = Math.floor((totalSeg % 3600) / 60);
+      const s = totalSeg % 60;
+      const fmt = `Pausado ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      const el = document.getElementById(elementId);
+      if (el) {
+        el.textContent = fmt;
+        // Alerta visual si supera 2 horas
+        if (transcurridoMs > UMBRAL_ALERTA_MS) {
+          el.classList.add('pausa-cronos-alerta');
+        } else {
+          el.classList.remove('pausa-cronos-alerta');
+        }
+      }
+    };
+
+    update();
+    const key = 'pausa_' + servicioId;
+    this.state.cronometrosPausa[key] = setInterval(update, 1000);
   },
 
   iniciarCronometroTecnico(tecnicoId, servicio) {
@@ -796,20 +890,38 @@ const Admin = {
 
     cont.innerHTML = html;
 
+    // Restaurar estado de expandidos (después de re-render por polling)
+    this.state.tecnicosExpandidos.forEach(tid => {
+      const detalle = document.getElementById('prod-detalle-' + tid);
+      const row = cont.querySelector(`[data-tecnico="${tid}"]`);
+      if (detalle && row) {
+        detalle.hidden = false;
+        const toggle = row.querySelector('.prod-toggle');
+        if (toggle) toggle.textContent = '▼';
+        row.classList.add('prod-row-expanded');
+      }
+    });
+
     // Bindear toggle del detalle
     cont.querySelectorAll('.prod-row-clickable').forEach(row => {
       row.addEventListener('click', () => {
         const tid = row.dataset.tecnico;
         const detalle = document.getElementById('prod-detalle-' + tid);
         const toggle = row.querySelector('.prod-toggle');
-        if (detalle.hidden) {
+        if (!detalle) return;
+
+        // Toggle por estado actual del DOM, no por estado guardado
+        const estaOculto = detalle.hidden;
+        if (estaOculto) {
           detalle.hidden = false;
           toggle.textContent = '▼';
           row.classList.add('prod-row-expanded');
+          this.state.tecnicosExpandidos.add(tid);
         } else {
           detalle.hidden = true;
           toggle.textContent = '▶';
           row.classList.remove('prod-row-expanded');
+          this.state.tecnicosExpandidos.delete(tid);
         }
       });
     });
