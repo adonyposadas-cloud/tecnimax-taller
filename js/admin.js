@@ -43,9 +43,9 @@ const Admin = {
     const profile = await Auth.requireAuth();
     if (!profile) return;
 
-    if (profile.rol !== 'admin') {
+    if (!['admin', 'jefe_pista'].includes(profile.rol)) {
       alert('No tienes permisos para ver este panel.');
-      window.location.href = profile.rol === 'jefe_pista' ? 'jefe.html' : 'tecnico.html';
+      window.location.href = 'tecnico.html';
       return;
     }
 
