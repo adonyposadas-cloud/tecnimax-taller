@@ -301,6 +301,35 @@ const Admin = {
     return f >= new Date(this.state.fechaDesde) && f <= new Date(this.state.fechaHasta);
   },
 
+  // Suma de minutos de pausas registradas del técnico, dentro de la ventana [desde, hasta]
+  // Solo considera pausas que TERMINARON (tienen hora_fin) — pausas activas no se cuentan.
+  calcularPausasTecnicoEnRango(tecnicoId, desde, hasta) {
+    if (!Array.isArray(this.state.pausas) || this.state.pausas.length === 0) return 0;
+    let total = 0;
+    this.state.pausas.forEach(p => {
+      if (p.tecnico_id !== tecnicoId) return;
+      if (!p.hora_inicio || !p.hora_fin) return;
+      const ini = new Date(p.hora_inicio);
+      const fin = new Date(p.hora_fin);
+      // Intersección con la ventana [desde, hasta]
+      const a = ini > desde ? ini : desde;
+      const b = fin < hasta ? fin : hasta;
+      if (b > a) {
+        total += Math.round((b - a) / 60000);
+      }
+    });
+    return total;
+  },
+
+  // Formatea minutos a "Xh Ym" o "Y min"
+  formatMin(min) {
+    if (!min || min === 0) return '0 min';
+    if (min < 60) return `${min} min`;
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return m === 0 ? `${h}h` : `${h}h ${m}m`;
+  },
+
   nombreUsuario(uid) {
     const u = this.state.usuarios.find(x => x.id === uid);
     return u ? u.nombre : '—';
@@ -847,21 +876,57 @@ const Admin = {
         nombre: t.nombre,
         codigo: t.codigo,
         servicios: 0,
-        tiempoReal: 0,
+        tiempoReal: 0,         // Suma de duraciones (Tiempo en Servicios)
         tiempoEsperado: 0,
         listaServicios: [],
+        primerInicio: null,    // hora_inicio más temprana
+        ultimoFin: null,       // hora_fin más tardía
       };
     });
 
     completadosRango.forEach(s => {
       if (!stats[s.tecnico_id]) return;
-      stats[s.tecnico_id].servicios += 1;
-      stats[s.tecnico_id].tiempoReal += s.tiempo_real_min || 0;
+      const st = stats[s.tecnico_id];
+      st.servicios += 1;
+      st.tiempoReal += s.tiempo_real_min || 0;
 
       const cat = this.state.serviciosCatalogo.find(c => c.id === s.servicio_id);
       const mediana = cat?.tiempo_promedio_min || 0;
-      stats[s.tecnico_id].tiempoEsperado += mediana;
-      stats[s.tecnico_id].listaServicios.push(s);
+      st.tiempoEsperado += mediana;
+      st.listaServicios.push(s);
+
+      // Tracking timeline
+      const ini = s.hora_inicio ? new Date(s.hora_inicio) : null;
+      const fin = s.hora_fin ? new Date(s.hora_fin) : null;
+      if (ini && (!st.primerInicio || ini < st.primerInicio)) st.primerInicio = ini;
+      if (fin && (!st.ultimoFin || fin > st.ultimoFin)) st.ultimoFin = fin;
+    });
+
+    // Calcular Tiempo Activo y Aprovechamiento por técnico
+    // SOLO tiene sentido para rango "hoy" (timeline de un día).
+    // Para "semana" y "mes" se muestra "—" porque la ventana abarca varios días.
+    const calcularActivoYAprov = (this.state.rango === 'hoy');
+
+    Object.values(stats).forEach(st => {
+      if (calcularActivoYAprov && st.primerInicio && st.ultimoFin) {
+        // Tiempo Activo en minutos = (último_fin − primer_inicio) − pausas
+        const ventanaMs = st.ultimoFin - st.primerInicio;
+        const ventanaMin = Math.max(0, Math.round(ventanaMs / 60000));
+
+        // Restar pausas registradas hoy del técnico
+        const pausasMin = this.calcularPausasTecnicoEnRango(st.id, st.primerInicio, st.ultimoFin);
+        st.tiempoActivo = Math.max(0, ventanaMin - pausasMin);
+
+        // Aprovechamiento = Tiempo Servicios / Tiempo Activo
+        if (st.tiempoActivo > 0) {
+          st.aprovechamiento = Math.round((st.tiempoReal / st.tiempoActivo) * 100);
+        } else {
+          st.aprovechamiento = null;
+        }
+      } else {
+        st.tiempoActivo = null;     // null = mostrar "—"
+        st.aprovechamiento = null;  // null = mostrar "—"
+      }
     });
 
     // Filtrar técnicos con al menos 1 servicio
@@ -878,13 +943,16 @@ const Admin = {
       <div class="prod-row prod-header">
         <div>Técnico</div>
         <div>Servicios</div>
-        <div>Tiempo total</div>
+        <div>T. Activo</div>
+        <div>T. Servicios</div>
         <div>Esperado</div>
         <div>Eficiencia</div>
+        <div>Aprovech.</div>
       </div>
     `;
 
     html += filas.map(x => {
+      // Eficiencia (sin cambio de lógica)
       let eficiencia = '—';
       let efClass = 'normal';
       if (x.tiempoEsperado > 0) {
@@ -906,15 +974,21 @@ const Admin = {
         }
       }
 
-      const tiempoTxt = x.tiempoReal >= 60
-        ? `${Math.floor(x.tiempoReal / 60)}h ${x.tiempoReal % 60}m`
-        : `${x.tiempoReal} min`;
+      // Aprovechamiento (NUEVO con badge de color)
+      let aprovTxt = '—';
+      let aprovClass = 'normal';
+      if (x.aprovechamiento !== null) {
+        aprovTxt = `${x.aprovechamiento}%`;
+        if (x.aprovechamiento >= 87) aprovClass = 'aprov-bueno';
+        else if (x.aprovechamiento >= 70) aprovClass = 'aprov-medio';
+        else aprovClass = 'aprov-bajo';
+      }
 
-      const espTxt = x.tiempoEsperado >= 60
-        ? `${Math.floor(x.tiempoEsperado / 60)}h ${x.tiempoEsperado % 60}m`
-        : `${x.tiempoEsperado} min`;
+      const tiempoTxt = this.formatMin(x.tiempoReal);
+      const espTxt = this.formatMin(x.tiempoEsperado);
+      const activoTxt = x.tiempoActivo === null ? '—' : this.formatMin(x.tiempoActivo);
 
-      // Detalle expandible
+      // Detalle expandible (sin cambios)
       const detalleServicios = x.listaServicios
         .sort((a, b) => new Date(b.hora_fin) - new Date(a.hora_fin))
         .map(s => {
@@ -956,9 +1030,11 @@ const Admin = {
             ${Utils.escapeHtml(x.nombre)}
           </div>
           <div class="prod-numero">${x.servicios}</div>
+          <div class="prod-numero">${activoTxt}</div>
           <div class="prod-numero">${tiempoTxt}</div>
           <div class="prod-numero">${espTxt}</div>
           <div class="prod-eficiencia ${efClass}">${eficiencia}</div>
+          <div class="prod-aprov ${aprovClass}">${aprovTxt}</div>
         </div>
         <div class="prod-detalle" id="prod-detalle-${x.id}" hidden>
           ${detalleServicios}
