@@ -163,6 +163,46 @@
       border-color: var(--text-muted);
     }
 
+    /* ===== Productividad: 7 columnas (Fase: Aprovechamiento) ===== */
+    .prod-row {
+      display: grid;
+      grid-template-columns: 2fr 0.8fr 1fr 1fr 1fr 1fr 1fr;
+      gap: 8px;
+      align-items: center;
+    }
+    @media (max-width: 900px) {
+      .prod-row {
+        grid-template-columns: 2fr 0.6fr 0.9fr 0.9fr 0.8fr 0.8fr 0.9fr;
+        font-size: 0.85rem;
+      }
+    }
+
+    /* Badges Aprovechamiento */
+    .prod-aprov {
+      text-align: center;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      justify-self: center;
+      min-width: 56px;
+    }
+    .prod-aprov.aprov-bueno {
+      background: rgba(40, 167, 69, 0.18);
+      color: var(--verde-ok);
+    }
+    .prod-aprov.aprov-medio {
+      background: rgba(255, 193, 7, 0.18);
+      color: var(--amarillo);
+    }
+    .prod-aprov.aprov-bajo {
+      background: rgba(220, 53, 69, 0.20);
+      color: var(--rojo-urgente);
+    }
+    .prod-aprov.normal {
+      color: var(--text-muted);
+    }
+
     /* ===== Alertas Mantenimiento (Fase 4b) ===== */
     .kpi-card-alertas-mtto {
       background: rgba(220, 53, 69, 0.10);
