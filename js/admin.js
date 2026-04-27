@@ -295,6 +295,120 @@ const Admin = {
       .sort((a, b) => new Date(b.hora_pausa) - new Date(a.hora_pausa))[0] || null;
   },
 
+  // ===== PAUSA REMOTA POR ADMIN/JEFE (motivo: ausente) =====
+  async pausarServicioRemoto(servicioId, tecnicoId) {
+    // Verificar permisos
+    const rol = this.state.profile?.rol;
+    if (!['admin', 'jefe_pista'].includes(rol)) {
+      alert('No tienes permiso para pausar servicios remotamente.');
+      return;
+    }
+
+    // Verificar que el servicio sigue activo (defensivo)
+    const servicio = this.state.servicios.find(s => s.id === servicioId);
+    if (!servicio) {
+      alert('El servicio ya no existe. Refresca la página.');
+      return;
+    }
+    if (servicio.estado !== 'en_progreso') {
+      alert('Este servicio ya no está activo. Refresca la página.');
+      return;
+    }
+
+    // Verificar que NO hay pausa abierta ya (defensivo)
+    const yaPausado = this.pausaAbierta(servicioId);
+    if (yaPausado) {
+      alert('Este servicio ya está pausado.');
+      return;
+    }
+
+    const tecnico = this.state.usuarios.find(u => u.id === tecnicoId);
+    const nombreTec = tecnico?.nombre || 'el técnico';
+    const orden = this.state.ordenes.find(o => o.num_orden === servicio.num_orden);
+    const placa = orden?.placa || '—';
+    const nomServicio = this.nombreServicio(servicio.servicio_id);
+
+    const ok = confirm(
+      `¿Pausar el cronómetro de ${nombreTec}?\n\n` +
+      `Servicio: ${nomServicio}\n` +
+      `Vehículo: ${placa}\n` +
+      `Motivo: ausente del plantel\n\n` +
+      `El técnico podrá reanudarlo desde su dispositivo cuando regrese.`
+    );
+    if (!ok) return;
+
+    try {
+      // 1. Insertar pausa con motivo 'ausente' y registrar quién pausó
+      const { error: errPausa } = await supabaseClient
+        .from('historial_pausas')
+        .insert({
+          servicio_orden_id: servicioId,
+          tecnico_id: tecnicoId,
+          motivo: 'ausente',
+          hora_pausa: new Date().toISOString(),
+          pausado_por: this.state.profile.id,
+        });
+      if (errPausa) throw errPausa;
+
+      // 2. Cambiar estado del servicio a 'pausado'
+      const { error: errServ } = await supabaseClient
+        .from('servicios_orden')
+        .update({ estado: 'pausado' })
+        .eq('id', servicioId);
+      if (errServ) throw errServ;
+
+      Utils.log(`Servicio ${servicioId} pausado remotamente por ${rol} (${this.state.profile.nombre})`);
+      // El realtime/polling refrescará la UI automáticamente
+    } catch (e) {
+      console.error('Error pausando remotamente:', e);
+      alert('Error al pausar el servicio: ' + (e.message || 'desconocido'));
+    }
+  },
+
+  async reanudarServicioRemoto(servicioId) {
+    const rol = this.state.profile?.rol;
+    if (!['admin', 'jefe_pista'].includes(rol)) {
+      alert('No tienes permiso para reanudar servicios remotamente.');
+      return;
+    }
+
+    const pausa = this.pausaAbierta(servicioId);
+    if (!pausa) {
+      alert('Este servicio no tiene una pausa abierta.');
+      return;
+    }
+    // Solo reanudar pausas de motivo 'ausente' desde aquí
+    // (las otras pausas las maneja el técnico desde su pantalla)
+    if (pausa.motivo !== 'ausente') {
+      alert('Esta pausa no fue por ausencia. Debe reanudarla el técnico.');
+      return;
+    }
+
+    const ok = confirm('¿Reanudar el servicio? El cronómetro vuelve a correr.');
+    if (!ok) return;
+
+    try {
+      // 1. Cerrar la pausa (fijar hora_reanudacion)
+      const { error: errPausa } = await supabaseClient
+        .from('historial_pausas')
+        .update({ hora_reanudacion: new Date().toISOString() })
+        .eq('id', pausa.id);
+      if (errPausa) throw errPausa;
+
+      // 2. Volver el servicio a 'en_progreso'
+      const { error: errServ } = await supabaseClient
+        .from('servicios_orden')
+        .update({ estado: 'en_progreso' })
+        .eq('id', servicioId);
+      if (errServ) throw errServ;
+
+      Utils.log(`Servicio ${servicioId} reanudado remotamente por ${rol}`);
+    } catch (e) {
+      console.error('Error reanudando remotamente:', e);
+      alert('Error al reanudar el servicio: ' + (e.message || 'desconocido'));
+    }
+  },
+
   enRango(fechaIso) {
     if (!fechaIso) return false;
     const f = new Date(fechaIso);
@@ -698,6 +812,7 @@ const Admin = {
                     <span class="placa-mini">${Utils.escapeHtml(placa)}</span>
                     <span class="actividad-nombre">${Utils.escapeHtml(this.nombreServicio(sa.servicio_id))}</span>
                     <span class="actividad-cronos" id="cron-${t.id}-${sa.id}">00:00:00</span>
+                    <button type="button" class="btn-pausa-remota" data-action="pausar-remoto" data-sid="${sa.id}" data-tid="${t.id}" title="Pausar (técnico ausente)">⏸</button>
                   </div>`;
         }).join('');
 
@@ -709,14 +824,16 @@ const Admin = {
             const pausa = this.pausaAbierta(sp.id);
             const motivos = {
               repuesto: 'repuesto', cambio_unidad: 'cambio unidad',
-              personal: 'personal', reasignacion_jefe: 'reasignación'
+              personal: 'personal', reasignacion_jefe: 'reasignación', ausente: 'ausente'
             };
             const motivo = pausa ? (motivos[pausa.motivo] || pausa.motivo) : '';
+            const esAusente = pausa?.motivo === 'ausente';
             return `<div class="tecnico-actividad-linea atenuado">
                       <span class="placa-mini">${Utils.escapeHtml(placa)}</span>
                       <span class="actividad-nombre">${Utils.escapeHtml(this.nombreServicio(sp.servicio_id))}</span>
-                      ${motivo ? `<span class="motivo-tag">${motivo}</span>` : ''}
+                      ${motivo ? `<span class="motivo-tag ${esAusente ? 'motivo-ausente' : ''}">${motivo}</span>` : ''}
                       <span class="actividad-cronos pausa-cronos-inline" id="pausa-cron-inline-${sp.id}" data-inicio="${pausa?.hora_pausa || ''}">--:--:--</span>
+                      ${esAusente ? `<button type="button" class="btn-reanudar-remoto" data-action="reanudar-remoto" data-sid="${sp.id}" title="Reanudar">▶</button>` : ''}
                     </div>`;
           }).join('');
         }
@@ -735,14 +852,16 @@ const Admin = {
           const pausa = this.pausaAbierta(sp.id);
           const motivos = {
             repuesto: 'repuesto', cambio_unidad: 'cambio unidad',
-            personal: 'personal', reasignacion_jefe: 'reasignación'
+            personal: 'personal', reasignacion_jefe: 'reasignación', ausente: 'ausente'
           };
           const motivo = pausa ? (motivos[pausa.motivo] || pausa.motivo) : '';
+          const esAusente = pausa?.motivo === 'ausente';
           return `<div class="tecnico-actividad-linea">
                     <span class="placa-mini">${Utils.escapeHtml(placa)}</span>
                     <span class="actividad-nombre">${Utils.escapeHtml(this.nombreServicio(sp.servicio_id))}</span>
-                    ${motivo ? `<span class="motivo-tag">${motivo}</span>` : ''}
+                    ${motivo ? `<span class="motivo-tag ${esAusente ? 'motivo-ausente' : ''}">${motivo}</span>` : ''}
                     <span class="actividad-cronos pausa-cronos-inline" id="pausa-cron-inline-${sp.id}" data-inicio="${pausa?.hora_pausa || ''}">--:--:--</span>
+                    ${esAusente ? `<button type="button" class="btn-reanudar-remoto" data-action="reanudar-remoto" data-sid="${sp.id}" title="Reanudar">▶</button>` : ''}
                   </div>`;
         }).join('');
 
@@ -772,6 +891,24 @@ const Admin = {
 
     document.getElementById('tecnicos-stats').textContent =
       `${trabajando} trabajando · ${pausado} pausados · ${libre} libres`;
+
+    // Event delegation para botones de pausa/reanuda remota (un solo listener que sobrevive re-renders)
+    if (!cont.dataset.boundRemota) {
+      cont.dataset.boundRemota = 'true';
+      cont.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        const action = btn.dataset.action;
+        if (action === 'pausar-remoto') {
+          const sid = parseInt(btn.dataset.sid, 10);
+          const tid = btn.dataset.tid;
+          this.pausarServicioRemoto(sid, tid);
+        } else if (action === 'reanudar-remoto') {
+          const sid = parseInt(btn.dataset.sid, 10);
+          this.reanudarServicioRemoto(sid);
+        }
+      });
+    }
 
     // Iniciar cronómetros para TODOS los servicios activos y pausados
     tecnicos.forEach(t => {
