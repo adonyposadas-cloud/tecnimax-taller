@@ -621,6 +621,19 @@ Disponibles para tomar.`;
       this.crearOrden();
     });
 
+    // Búsqueda en servicios (debounce 150ms)
+    const inputBusq = document.getElementById('servicios-busqueda');
+    if (inputBusq) {
+      let debTimer;
+      inputBusq.addEventListener('input', (e) => {
+        clearTimeout(debTimer);
+        debTimer = setTimeout(() => {
+          this.state.busquedaServicios = e.target.value;
+          this.renderServicios();
+        }, 150);
+      });
+    }
+
     // Click en una fila de orden -> abre detalle
     document.getElementById('orders-list').addEventListener('click', (e) => {
       const row = e.target.closest('.order-row');
@@ -639,6 +652,9 @@ Disponibles para tomar.`;
     this.state.serviciosSeleccionados.clear();
     this.state.categoriaActiva = null;
     this.state.prioridad = 'normal';
+    this.state.busquedaServicios = '';
+    const inputBusq = document.getElementById('servicios-busqueda');
+    if (inputBusq) inputBusq.value = '';
 
     document.getElementById('form-nueva-orden').reset();
     // Marca y modelo: deshabilitados por defecto, se habilitan si la placa es nueva
@@ -775,12 +791,28 @@ Disponibles para tomar.`;
 
   renderServicios() {
     const cont = document.getElementById('servicios-grid');
-    const filtrados = this.state.categoriaActiva === null
-      ? this.state.catalogo
-      : this.state.catalogo.filter(s => s.categoria_id === this.state.categoriaActiva);
+
+    // Búsqueda activa anula el filtro de categoría
+    const busqRaw = (this.state.busquedaServicios || '').trim();
+    const busq = this.normalizarTextoBusq(busqRaw);
+    const hayBusqueda = busq.length > 0;
+
+    let filtrados;
+    if (hayBusqueda) {
+      filtrados = this.state.catalogo.filter(s =>
+        this.normalizarTextoBusq(s.nombre).includes(busq)
+      );
+    } else if (this.state.categoriaActiva === null) {
+      filtrados = this.state.catalogo;
+    } else {
+      filtrados = this.state.catalogo.filter(s => s.categoria_id === this.state.categoriaActiva);
+    }
 
     if (filtrados.length === 0) {
-      cont.innerHTML = '<div class="servicio-empty">No hay servicios en esta categoría.</div>';
+      const msg = hayBusqueda
+        ? `Sin resultados para "${Utils.escapeHtml(busqRaw)}".`
+        : 'No hay servicios en esta categoría.';
+      cont.innerHTML = `<div class="servicio-empty">${msg}</div>`;
       return;
     }
 
@@ -819,6 +851,14 @@ Disponibles para tomar.`;
         this.renderCategorias(); // Para refrescar contadores en chips
       });
     });
+  },
+
+  normalizarTextoBusq(s) {
+    return (s || '')
+      .toString()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
   },
 
   actualizarContador() {
