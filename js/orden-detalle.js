@@ -1576,6 +1576,9 @@ Hora: ${this.fmtHora()}`;
   abrirModalAgregarJefe() {
     this.state.serviciosAgregarJefe = new Set();
     this.state.categoriaAgregarJefe = null;
+    this.state.busquedaAgregarJefe = '';
+    const inputBusq = document.getElementById('agregar-jefe-busqueda');
+    if (inputBusq) inputBusq.value = '';
     this.renderCategoriasAgregarJefe();
     this.renderServiciosAgregarJefe();
     this.actualizarContadorAgregarJefe();
@@ -1617,14 +1620,26 @@ Hora: ${this.fmtHora()}`;
     // Excluir servicios que YA están en la orden (cualquier estado)
     const yaEnOrden = new Set(this.state.servicios.map(s => s.servicio_id));
 
+    // Normalizar texto de búsqueda (quitar acentos, lowercase)
+    const busqRaw = (this.state.busquedaAgregarJefe || '').trim();
+    const busq = this.normalizarTextoBusqueda(busqRaw);
+    const hayBusqueda = busq.length > 0;
+
     const filtrados = this.state.serviciosCatalogo.filter(s => {
       if (yaEnOrden.has(s.id)) return false;
+      // Si hay búsqueda activa, ignora filtro de categoría (independiente)
+      if (hayBusqueda) {
+        return this.normalizarTextoBusqueda(s.nombre).includes(busq);
+      }
       if (this.state.categoriaAgregarJefe === null) return true;
       return s.categoria_id === this.state.categoriaAgregarJefe;
     });
 
     if (filtrados.length === 0) {
-      cont.innerHTML = '<div class="servicio-empty" style="grid-column: 1/-1; padding: 20px; text-align: center; color: var(--text-muted); font-size: 0.85rem;">No hay servicios disponibles en esta categoría.</div>';
+      const msg = hayBusqueda
+        ? `Sin resultados para "${Utils.escapeHtml(busqRaw)}".`
+        : 'No hay servicios disponibles en esta categoría.';
+      cont.innerHTML = `<div class="servicio-empty" style="grid-column: 1/-1; padding: 20px; text-align: center; color: var(--text-muted); font-size: 0.85rem;">${msg}</div>`;
       return;
     }
 
@@ -1663,6 +1678,14 @@ Hora: ${this.fmtHora()}`;
         this.renderCategoriasAgregarJefe();
       });
     });
+  },
+
+  normalizarTextoBusqueda(s) {
+    return (s || '')
+      .toString()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');  // quitar acentos
   },
 
   actualizarContadorAgregarJefe() {
@@ -1777,6 +1800,19 @@ Hora: ${this.fmtHora()}`;
     // Modal Agregar Servicio (Jefe)
     document.getElementById('btn-cancelar-agregar-jefe').addEventListener('click', () => this.cerrarModales());
     document.getElementById('btn-confirmar-agregar-jefe').addEventListener('click', () => this.confirmarAgregarJefe());
+
+    // Búsqueda en modal agregar servicio (debounce 150ms)
+    const inputBusqAg = document.getElementById('agregar-jefe-busqueda');
+    if (inputBusqAg) {
+      let debTimer;
+      inputBusqAg.addEventListener('input', (e) => {
+        clearTimeout(debTimer);
+        debTimer = setTimeout(() => {
+          this.state.busquedaAgregarJefe = e.target.value;
+          this.renderServiciosAgregarJefe();
+        }, 150);
+      });
+    }
 
     // Botón nuevo: técnico agrega servicio al catálogo de la orden
     const btnAddCatalogo = document.getElementById('btn-agregar-catalogo-tec');
