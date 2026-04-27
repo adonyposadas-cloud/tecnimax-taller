@@ -666,6 +666,7 @@ Disponibles para tomar.`;
     if (!placa) {
       document.getElementById('marca').value = '';
       document.getElementById('modelo').value = '';
+      document.getElementById('anio').value = '';
       this.deshabilitarVehiculoCampos();
       return;
     }
@@ -688,11 +689,12 @@ Disponibles para tomar.`;
         this.state.vehiculos[placa] = data;
         this.aplicarVehiculo(data);
       } else {
-        // Vehículo nuevo: habilitar marca y modelo para que el jefe los digite
+        // Vehículo nuevo: habilitar marca, modelo y año para que el jefe los digite
         document.getElementById('marca').value = '';
         document.getElementById('modelo').value = '';
+        document.getElementById('anio').value = '';
         this.habilitarVehiculoCampos();
-        document.getElementById('placa-hint').textContent = 'Vehículo nuevo (digita marca y modelo)';
+        document.getElementById('placa-hint').textContent = 'Vehículo nuevo (digita marca, modelo y año)';
         document.getElementById('placa-hint').style.color = 'var(--amarillo)';
       }
     } catch (err) {
@@ -702,7 +704,8 @@ Disponibles para tomar.`;
 
   aplicarVehiculo(v) {
     document.getElementById('marca').value = v.marca || '';
-    document.getElementById('modelo').value = `${v.modelo || ''}${v.anio ? ' ' + v.anio : ''}`.trim();
+    document.getElementById('modelo').value = v.modelo || '';
+    document.getElementById('anio').value = v.anio || '';
     this.deshabilitarVehiculoCampos();
     document.getElementById('placa-hint').textContent = `KM GPS actual: ${v.km_gps_actual || 0}`;
     document.getElementById('placa-hint').style.color = 'var(--text-dim)';
@@ -714,23 +717,32 @@ Disponibles para tomar.`;
   habilitarVehiculoCampos() {
     const marca = document.getElementById('marca');
     const modelo = document.getElementById('modelo');
+    const anio = document.getElementById('anio');
     marca.disabled = false;
     modelo.disabled = false;
+    anio.disabled = false;
     marca.classList.remove('field-disabled');
     modelo.classList.remove('field-disabled');
+    anio.classList.remove('field-disabled');
     marca.required = true;
     modelo.required = true;
+    // anio NO required: si no se sabe el año, se puede dejar vacío
+    anio.required = false;
   },
 
   deshabilitarVehiculoCampos() {
     const marca = document.getElementById('marca');
     const modelo = document.getElementById('modelo');
+    const anio = document.getElementById('anio');
     marca.disabled = true;
     modelo.disabled = true;
+    anio.disabled = true;
     marca.classList.add('field-disabled');
     modelo.classList.add('field-disabled');
+    anio.classList.add('field-disabled');
     marca.required = false;
     modelo.required = false;
+    anio.required = false;
   },
 
   // ==================== CATEGORÍAS Y SERVICIOS ====================
@@ -838,13 +850,21 @@ Disponibles para tomar.`;
     const placa = document.getElementById('placa').value.trim().toUpperCase();
     const motivo = document.getElementById('motivo').value.trim();
     const problema = document.getElementById('problema').value.trim();
-    const km = parseInt(document.getElementById('km-ingreso').value, 10);
+    const kmRaw = document.getElementById('km-ingreso').value.trim();
+    const kmParsed = parseInt(kmRaw, 10);
+    // KM es OPCIONAL. Si está vacío => null. Si tiene valor inválido => error.
+    let km = null;
+    if (kmRaw !== '') {
+      if (isNaN(kmParsed) || kmParsed < 0) {
+        return this.errorForm('Si llenas KM ingreso, debe ser un número válido (≥ 0).');
+      }
+      km = kmParsed;
+    }
     const servicios = [...this.state.serviciosSeleccionados];
 
     // Validaciones
     if (!placa) return this.errorForm('La placa es obligatoria.');
     if (!motivo) return this.errorForm('El motivo es obligatorio.');
-    if (isNaN(km) || km < 0) return this.errorForm('KM ingreso inválido.');
     if (servicios.length === 0) return this.errorForm('Selecciona al menos 1 servicio.');
 
     const btn = document.getElementById('btn-crear');
@@ -855,7 +875,9 @@ Disponibles para tomar.`;
       // Si el vehículo no existe, crearlo
       if (!this.state.vehiculos[placa]) {
         const marca = document.getElementById('marca').value.trim().toUpperCase();
-        const modeloRaw = document.getElementById('modelo').value.trim().toUpperCase();
+        const modelo = document.getElementById('modelo').value.trim().toUpperCase();
+        const anioRaw = document.getElementById('anio').value.trim();
+        const anio = anioRaw === '' ? null : parseInt(anioRaw, 10);
 
         // Validar antes del insert
         if (!marca) {
@@ -863,30 +885,29 @@ Disponibles para tomar.`;
           btn.textContent = 'Crear orden';
           return this.errorForm('La marca es obligatoria para vehículos nuevos.');
         }
-        if (!modeloRaw) {
+        if (!modelo) {
           btn.disabled = false;
           btn.textContent = 'Crear orden';
           return this.errorForm('El modelo es obligatorio para vehículos nuevos.');
         }
-
-        // Extraer año si viene al final del modelo (ej: "CIVIC 2020" → modelo="CIVIC", anio=2020)
-        let modelo = modeloRaw;
-        let anio = null;
-        const yearMatch = modeloRaw.match(/^(.+?)\s+((?:19|20)\d{2})\s*$/);
-        if (yearMatch) {
-          modelo = yearMatch[1].trim();
-          anio = parseInt(yearMatch[2], 10);
+        if (anio !== null && (isNaN(anio) || anio < 1980 || anio > 2030)) {
+          btn.disabled = false;
+          btn.textContent = 'Crear orden';
+          return this.errorForm('Año inválido (debe estar entre 1980 y 2030).');
         }
 
         const insertData = {
           placa,
           marca,
           modelo,
-          km_gps_actual: km,
-          fecha_ultimo_km_gps: new Date().toISOString(),
           activo: true,
         };
-        if (anio) insertData.anio = anio;
+        // km_gps_actual y fecha sólo si el jefe ingresó km
+        if (km !== null) {
+          insertData.km_gps_actual = km;
+          insertData.fecha_ultimo_km_gps = new Date().toISOString();
+        }
+        if (anio !== null) insertData.anio = anio;
 
         const { error: vErr } = await supabaseClient
           .from('vehiculos')
@@ -895,18 +916,21 @@ Disponibles para tomar.`;
       }
 
       // Crear orden (el trigger genera num_orden automáticamente)
+      const ordenInsert = {
+        num_orden: '',  // El trigger lo asigna
+        placa,
+        motivo,
+        problema: problema || null,
+        prioridad: this.state.prioridad,
+        estado: 'abierta',
+        creada_por: this.state.profile.id,
+      };
+      // km_ingreso solo si se proporcionó
+      if (km !== null) ordenInsert.km_ingreso = km;
+
       const { data: ordenData, error: oErr } = await supabaseClient
         .from('ordenes')
-        .insert({
-          num_orden: '',  // El trigger lo asigna
-          placa,
-          km_ingreso: km,
-          motivo,
-          problema: problema || null,
-          prioridad: this.state.prioridad,
-          estado: 'abierta',
-          creada_por: this.state.profile.id,
-        })
+        .insert(ordenInsert)
         .select('num_orden')
         .single();
 
@@ -941,14 +965,15 @@ Disponibles para tomar.`;
       // Datos del vehículo (puede venir del cache o del formulario)
       const vehCache = this.state.vehiculos[placa] || {};
       const marca = vehCache.marca || document.getElementById('marca').value.trim().toUpperCase() || '';
-      const modeloRaw = vehCache.modelo || document.getElementById('modelo').value.trim().toUpperCase() || '';
-      const anio = vehCache.anio || null;
+      const modelo = vehCache.modelo || document.getElementById('modelo').value.trim().toUpperCase() || '';
+      const anioInput = document.getElementById('anio').value.trim();
+      const anio = vehCache.anio || (anioInput ? parseInt(anioInput, 10) : null);
 
       this.mostrarToastWhatsapp('tecnicos', this.plantillaNuevaOrden({
         num_orden,
         placa,
         marca,
-        modelo: modeloRaw,
+        modelo,
         anio,
         prioridad: this.state.prioridad,
         motivo,
