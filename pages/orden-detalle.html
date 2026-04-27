@@ -316,6 +316,9 @@
         <h2 class="modal-title">Agregar servicios a esta orden</h2>
       </header>
       <div class="modal-body">
+        <div class="busqueda-servicios">
+          <input type="search" id="agregar-jefe-busqueda" class="field-input" placeholder="🔍 Buscar servicio por nombre..." autocomplete="off" />
+        </div>
         <div class="categorias-chips" id="agregar-jefe-cats"></div>
         <div class="servicios-grid" id="agregar-jefe-grid"></div>
         <div id="agregar-jefe-error" class="error-msg" hidden></div>
@@ -331,6 +334,16 @@
   </div>
 
   <style>
+    /* ===== Búsqueda dentro de modal agregar servicios ===== */
+    .busqueda-servicios {
+      margin-bottom: var(--sp-3);
+    }
+    .busqueda-servicios input {
+      width: 100%;
+      font-size: 0.95rem;
+      padding: 10px 12px;
+    }
+
     /* ===== Banner alertas mantenimiento (Fase 4b) ===== */
     .banner-alertas-mtto {
       background: rgba(220, 53, 69, 0.10);
