@@ -53,6 +53,14 @@ const Admin = {
     document.getElementById('user-nombre-header').textContent = profile.nombre || 'Administración';
     document.getElementById('btn-logout').addEventListener('click', () => Auth.logout());
 
+    // Si entra el jefe (no admin), mostrar "Volver al panel" y ocultar "Configuración"
+    if (profile.rol === 'jefe_pista') {
+      const btnVolver = document.getElementById('btn-volver-jefe');
+      const btnConfig = document.getElementById('btn-config-admin');
+      if (btnVolver) btnVolver.hidden = false;
+      if (btnConfig) btnConfig.hidden = true;
+    }
+
     this.calcularRango();
     this.actualizarRangoInfo();
     this.bindEventos();
