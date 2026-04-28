@@ -1040,6 +1040,8 @@ Hora: ${this.fmtHora()}`;
 
       if (pErr) throw pErr;
 
+      let huboPausaAbiertaCerrada = false;
+
       // Si NO se cerró ninguna pausa, NO continuar (evita bug de tiempo mal calculado)
       if (!pausasActualizadas || pausasActualizadas.length === 0) {
         // Buscar si hay pausa abierta
@@ -1056,7 +1058,16 @@ Hora: ${this.fmtHora()}`;
         // No hay pausa abierta, raro pero seguir
         Utils.log('Reanudar: no había pausa abierta para cerrar.');
       } else {
+        huboPausaAbiertaCerrada = true;
         Utils.log('Reanudar: pausa cerrada correctamente:', pausasActualizadas[0].id);
+      }
+
+      // 1.5 DETECCIÓN DE GAP NOCTURNO (cierre de día anterior)
+      // Si NO había pausa abierta (caso "se cerró ayer con botón Cerrar día"),
+      // calcular gap entre la última actividad del servicio y AHORA.
+      // Si gap > 4 horas → crear pausa automática que cubre ese gap.
+      if (!huboPausaAbiertaCerrada) {
+        await this.crearPausaAutomaticaSiGap(sid);
       }
 
       // 2. Cambiar estado del servicio
@@ -1070,6 +1081,74 @@ Hora: ${this.fmtHora()}`;
     } catch (err) {
       Utils.log('Error reanudando:', err);
       alert('No se pudo reanudar: ' + (err.message || ''));
+    }
+  },
+
+  // Crea una pausa "automática" si detecta que pasó >4h desde la última actividad
+  // del servicio. Caso típico: cierre de día anterior con botón "⏹".
+  async crearPausaAutomaticaSiGap(sid) {
+    const GAP_THRESHOLD_HORAS = 4;
+    const GAP_MS = GAP_THRESHOLD_HORAS * 60 * 60 * 1000;
+
+    try {
+      // Obtener el servicio (para hora_inicio + tecnico_id)
+      const { data: serv, error: e1 } = await supabaseClient
+        .from('servicios_orden')
+        .select('id, tecnico_id, hora_inicio')
+        .eq('id', sid)
+        .single();
+      if (e1) throw e1;
+      if (!serv || !serv.hora_inicio) return;
+
+      // Obtener TODAS las pausas previas (cerradas) de este servicio
+      const { data: pausas, error: e2 } = await supabaseClient
+        .from('historial_pausas')
+        .select('id, hora_pausa, hora_reanudacion')
+        .eq('servicio_orden_id', sid)
+        .not('hora_reanudacion', 'is', null)
+        .order('hora_reanudacion', { ascending: false });
+      if (e2) throw e2;
+
+      // "Última actividad del servicio" = MAX(hora_reanudacion de pausas), o hora_inicio si no hay
+      let ultimaActividad;
+      if (pausas && pausas.length > 0) {
+        ultimaActividad = new Date(pausas[0].hora_reanudacion);
+      } else {
+        ultimaActividad = new Date(serv.hora_inicio);
+      }
+
+      const ahora = new Date();
+      const gapMs = ahora - ultimaActividad;
+
+      if (gapMs < GAP_MS) {
+        // Gap pequeño, no hace falta pausa automática
+        Utils.log(`Reanudar: gap de ${Math.round(gapMs / 60000)} min < ${GAP_THRESHOLD_HORAS}h, sin pausa automática.`);
+        return;
+      }
+
+      // Crear pausa automática: desde la última actividad hasta ahora
+      const horaPausa = ultimaActividad.toISOString();
+      const horaReanudacion = ahora.toISOString();
+
+      Utils.log(`Reanudar: detectado gap de ${Math.round(gapMs / 3600000)}h. Creando pausa automática.`);
+
+      const { error: e3 } = await supabaseClient
+        .from('historial_pausas')
+        .insert({
+          servicio_orden_id: sid,
+          tecnico_id: serv.tecnico_id,
+          motivo: 'ausente',
+          hora_pausa: horaPausa,
+          hora_reanudacion: horaReanudacion,
+          // pausado_por queda NULL (es automática, no fue una persona)
+        });
+      if (e3) throw e3;
+
+      Utils.log('Pausa automática creada correctamente.');
+    } catch (err) {
+      // No bloquear la reanudación si falla la pausa automática.
+      // Mejor reanudar que dejar al técnico atascado.
+      Utils.log('Error creando pausa automática (no crítico):', err);
     }
   },
 
