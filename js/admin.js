@@ -553,10 +553,29 @@ const Admin = {
     let total = 0;
     this.state.pausas.forEach(p => {
       if (p.tecnico_id !== tecnicoId) return;
-      if (!p.hora_inicio || !p.hora_fin) return;
-      const ini = new Date(p.hora_inicio);
-      const fin = new Date(p.hora_fin);
+      if (!p.hora_pausa || !p.hora_reanudacion) return;
+      const ini = new Date(p.hora_pausa);
+      const fin = new Date(p.hora_reanudacion);
       // Intersección con la ventana [desde, hasta]
+      const a = ini > desde ? ini : desde;
+      const b = fin < hasta ? fin : hasta;
+      if (b > a) {
+        total += Math.round((b - a) / 60000);
+      }
+    });
+    return total;
+  },
+
+  // Suma de minutos de pausas CERRADAS de un servicio específico, dentro de [desde, hasta]
+  // Usado para calcular tiempo trabajado parcial de servicios pausados o en progreso.
+  pausasPreviasMinutos(servicioId, desde, hasta) {
+    if (!Array.isArray(this.state.pausas) || this.state.pausas.length === 0) return 0;
+    let total = 0;
+    this.state.pausas.forEach(p => {
+      if (p.servicio_orden_id !== servicioId) return;
+      if (!p.hora_pausa || !p.hora_reanudacion) return;  // solo cerradas
+      const ini = new Date(p.hora_pausa);
+      const fin = new Date(p.hora_reanudacion);
       const a = ini > desde ? ini : desde;
       const b = fin < hasta ? fin : hasta;
       if (b > a) {
@@ -1130,17 +1149,28 @@ const Admin = {
     const tecnicos = this.state.usuarios.filter(u => u.rol === 'tecnico');
     const cont = document.getElementById('productividad-list');
 
-    // Servicios completados en el rango
-    const completadosRango = this.state.servicios.filter(
-      s => s.estado === 'completado' && this.enRango(s.hora_fin)
-    );
+    // ========================================================================
+    // FASE 1: Filtrar TODOS los servicios del rango (completados + pausados + en progreso)
+    // ========================================================================
+    // Un servicio "toca" el rango si:
+    //  - Completado: hora_fin en rango
+    //  - Pausado o en_progreso: hora_inicio en rango (porque no tiene hora_fin definitiva)
+    const serviciosRango = this.state.servicios.filter(s => {
+      if (s.estado === 'completado') return this.enRango(s.hora_fin);
+      if (s.estado === 'pausado' || s.estado === 'en_progreso') {
+        return s.hora_inicio && this.enRango(s.hora_inicio);
+      }
+      return false;
+    });
 
-    if (completadosRango.length === 0) {
-      cont.innerHTML = '<div class="empty-state"><p>Sin servicios completados en este rango.</p></div>';
+    if (serviciosRango.length === 0) {
+      cont.innerHTML = '<div class="empty-state"><p>Sin servicios en este rango.</p></div>';
       return;
     }
 
-    // Agrupar por técnico
+    // ========================================================================
+    // FASE 2: Agrupar por técnico y calcular métricas
+    // ========================================================================
     const stats = {};
     tecnicos.forEach(t => {
       stats[t.id] = {
@@ -1148,56 +1178,83 @@ const Admin = {
         nombre: t.nombre,
         codigo: t.codigo,
         servicios: 0,
-        tiempoReal: 0,         // Suma de duraciones (Tiempo en Servicios)
+        tiempoReal: 0,         // Suma de duraciones (incluye parciales)
         tiempoEsperado: 0,
         listaServicios: [],
-        primerInicio: null,    // hora_inicio más temprana
-        ultimoFin: null,       // hora_fin más tardía
+        primerInicio: null,
+        ultimoFin: null,
       };
     });
 
-    completadosRango.forEach(s => {
+    const ahora = new Date();
+
+    serviciosRango.forEach(s => {
       if (!stats[s.tecnico_id]) return;
       const st = stats[s.tecnico_id];
       st.servicios += 1;
-      st.tiempoReal += s.tiempo_real_min || 0;
+      st.listaServicios.push(s);
 
       const cat = this.state.serviciosCatalogo.find(c => c.id === s.servicio_id);
       const mediana = cat?.tiempo_promedio_min || 0;
       st.tiempoEsperado += mediana;
-      st.listaServicios.push(s);
 
-      // Tracking timeline
+      // Calcular tiempo trabajado según estado
+      let tiempoMin = 0;
+      let finReferencia = null;  // para timeline (último_fin)
+
+      if (s.estado === 'completado') {
+        // Caso simple: usar tiempo_real_min ya calculado
+        tiempoMin = s.tiempo_real_min || 0;
+        finReferencia = s.hora_fin ? new Date(s.hora_fin) : null;
+      } else if (s.estado === 'pausado') {
+        // Tiempo trabajado = (hora_pausa_actual - hora_inicio) - pausas previas cerradas
+        // Si no encuentra pausa abierta, usar última pausa cerrada o NOW
+        const pausa = this.pausaAbierta(s.id);
+        const ini = s.hora_inicio ? new Date(s.hora_inicio) : null;
+        if (ini) {
+          const finVentana = pausa ? new Date(pausa.hora_pausa) : ahora;
+          const pausasPreviasMin = this.pausasPreviasMinutos(s.id, ini, finVentana);
+          tiempoMin = Math.max(0, Math.round((finVentana - ini) / 60000) - pausasPreviasMin);
+          finReferencia = finVentana;
+        }
+      } else if (s.estado === 'en_progreso') {
+        // Tiempo trabajado = (NOW - hora_inicio) - pausas cerradas
+        const ini = s.hora_inicio ? new Date(s.hora_inicio) : null;
+        if (ini) {
+          const pausasPreviasMin = this.pausasPreviasMinutos(s.id, ini, ahora);
+          tiempoMin = Math.max(0, Math.round((ahora - ini) / 60000) - pausasPreviasMin);
+          finReferencia = ahora;
+        }
+      }
+      st.tiempoReal += tiempoMin;
+
+      // Tracking timeline (con todos los servicios del rango)
       const ini = s.hora_inicio ? new Date(s.hora_inicio) : null;
-      const fin = s.hora_fin ? new Date(s.hora_fin) : null;
       if (ini && (!st.primerInicio || ini < st.primerInicio)) st.primerInicio = ini;
-      if (fin && (!st.ultimoFin || fin > st.ultimoFin)) st.ultimoFin = fin;
+      if (finReferencia && (!st.ultimoFin || finReferencia > st.ultimoFin)) st.ultimoFin = finReferencia;
     });
 
-    // Calcular Tiempo Activo y Aprovechamiento por técnico
-    // SOLO tiene sentido para rango "hoy" (timeline de un día).
-    // Para "semana" y "mes" se muestra "—" porque la ventana abarca varios días.
+    // ========================================================================
+    // FASE 3: Calcular Tiempo Activo y Aprovechamiento (solo en rango "hoy")
+    // ========================================================================
     const calcularActivoYAprov = (this.state.rango === 'hoy');
 
     Object.values(stats).forEach(st => {
       if (calcularActivoYAprov && st.primerInicio && st.ultimoFin) {
-        // Tiempo Activo en minutos = (último_fin − primer_inicio) − pausas
         const ventanaMs = st.ultimoFin - st.primerInicio;
         const ventanaMin = Math.max(0, Math.round(ventanaMs / 60000));
 
-        // Restar pausas registradas hoy del técnico
         const pausasMin = this.calcularPausasTecnicoEnRango(st.id, st.primerInicio, st.ultimoFin);
         st.tiempoActivo = Math.max(0, ventanaMin - pausasMin);
 
-        // Aprovechamiento = Tiempo Servicios / Tiempo Activo
         if (st.tiempoActivo > 0) {
           st.aprovechamiento = Math.round((st.tiempoReal / st.tiempoActivo) * 100);
         } else {
           st.aprovechamiento = null;
         }
       } else {
-        st.tiempoActivo = null;     // null = mostrar "—"
-        st.aprovechamiento = null;  // null = mostrar "—"
+        st.tiempoActivo = null;
+        st.aprovechamiento = null;
       }
     });
 
@@ -1207,7 +1264,7 @@ const Admin = {
       .sort((a, b) => b.servicios - a.servicios);
 
     if (filas.length === 0) {
-      cont.innerHTML = '<div class="empty-state"><p>Sin servicios completados por técnicos en este rango.</p></div>';
+      cont.innerHTML = '<div class="empty-state"><p>Sin servicios por técnicos en este rango.</p></div>';
       return;
     }
 
@@ -1260,31 +1317,60 @@ const Admin = {
       const espTxt = this.formatMin(x.tiempoEsperado);
       const activoTxt = x.tiempoActivo === null ? '—' : this.formatMin(x.tiempoActivo);
 
-      // Detalle expandible (sin cambios)
+      // Detalle expandible — ahora muestra completados, pausados y en progreso
       const detalleServicios = x.listaServicios
-        .sort((a, b) => new Date(b.hora_fin) - new Date(a.hora_fin))
+        .slice()
+        .sort((a, b) => {
+          // Ordenar por fecha más reciente primero (usar hora_fin si está, sino hora_inicio)
+          const ta = a.hora_fin ? new Date(a.hora_fin) : (a.hora_inicio ? new Date(a.hora_inicio) : 0);
+          const tb = b.hora_fin ? new Date(b.hora_fin) : (b.hora_inicio ? new Date(b.hora_inicio) : 0);
+          return tb - ta;
+        })
         .map(s => {
           const cat = this.state.serviciosCatalogo.find(c => c.id === s.servicio_id);
           const orden = this.state.ordenes.find(o => o.num_orden === s.num_orden);
           const placa = orden?.placa || '—';
           const mediana = cat?.tiempo_promedio_min || 0;
-          const tiempoReal = s.tiempo_real_min || 0;
+
+          // Calcular tiempo según estado (mismo cálculo que arriba)
+          let tiempoReal = 0;
+          let etiquetaEstado = '';
+          if (s.estado === 'completado') {
+            tiempoReal = s.tiempo_real_min || 0;
+          } else if (s.estado === 'pausado') {
+            const pausa = this.pausaAbierta(s.id);
+            const ini = s.hora_inicio ? new Date(s.hora_inicio) : null;
+            if (ini) {
+              const finVentana = pausa ? new Date(pausa.hora_pausa) : ahora;
+              const pausasPreviasMin = this.pausasPreviasMinutos(s.id, ini, finVentana);
+              tiempoReal = Math.max(0, Math.round((finVentana - ini) / 60000) - pausasPreviasMin);
+            }
+            etiquetaEstado = ' (pausado)';
+          } else if (s.estado === 'en_progreso') {
+            const ini = s.hora_inicio ? new Date(s.hora_inicio) : null;
+            if (ini) {
+              const pausasPreviasMin = this.pausasPreviasMinutos(s.id, ini, ahora);
+              tiempoReal = Math.max(0, Math.round((ahora - ini) / 60000) - pausasPreviasMin);
+            }
+            etiquetaEstado = ' (en progreso)';
+          }
 
           let detClass = 'detalle-normal';
           let detIcon = '';
-          if (mediana > 0) {
+          if (s.estado === 'completado' && mediana > 0) {
             const ratio = tiempoReal / mediana;
             if (ratio < 0.85) { detClass = 'detalle-eficiente'; detIcon = '⚡'; }
             else if (ratio > 1.8) { detClass = 'detalle-lento'; detIcon = '⚠️'; }
             else if (ratio > 1.2) { detClass = 'detalle-medio'; }
           }
 
-          const fechaFin = this.formatearHora(s.hora_fin);
+          const fechaFin = s.hora_fin ? this.formatearHora(s.hora_fin) :
+                           s.hora_inicio ? this.formatearHora(s.hora_inicio) : '—';
 
           return `
             <div class="prod-detalle-item ${detClass}" data-orden="${s.num_orden}">
               <div class="prod-detalle-info">
-                <div class="prod-detalle-titulo">${detIcon} ${Utils.escapeHtml(cat?.nombre || 'Servicio')}</div>
+                <div class="prod-detalle-titulo">${detIcon} ${Utils.escapeHtml(cat?.nombre || 'Servicio')}${etiquetaEstado}</div>
                 <div class="prod-detalle-meta">${Utils.escapeHtml(placa)} · ${s.num_orden} · ${fechaFin}</div>
               </div>
               <div class="prod-detalle-tiempo">
