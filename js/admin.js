@@ -409,6 +409,57 @@ const Admin = {
     }
   },
 
+  // ===== CERRAR DÍA: cierra pausa 'ausente' pero deja el servicio en 'pausado' =====
+  // Caso: el técnico no vuelve hoy. Cerramos la pausa para que el cronómetro no corra
+  // toda la noche. El servicio queda 'pausado' y mañana el técnico lo reanuda.
+  async cerrarDiaServicioRemoto(servicioId, tecnicoId) {
+    const rol = this.state.profile?.rol;
+    if (!['admin', 'jefe_pista'].includes(rol)) {
+      alert('No tienes permiso para cerrar día remotamente.');
+      return;
+    }
+
+    const pausa = this.pausaAbierta(servicioId);
+    if (!pausa) {
+      alert('Este servicio no tiene una pausa abierta.');
+      return;
+    }
+    if (pausa.motivo !== 'ausente') {
+      alert('Solo se puede cerrar día de pausas por ausencia.');
+      return;
+    }
+
+    const tecnico = this.state.usuarios.find(u => u.id === tecnicoId);
+    const nombreTec = tecnico?.nombre || 'el técnico';
+
+    const ok = confirm(
+      `¿Cerrar el día de ${nombreTec}?\n\n` +
+      `Esto detiene el cronómetro de pausa AHORA mismo.\n` +
+      `El servicio queda PAUSADO. Mañana cuando el técnico vuelva,\n` +
+      `podrá reanudarlo desde su dispositivo y continuar donde quedó.\n\n` +
+      `Usa esta opción cuando confirmes que el técnico NO regresa hoy.`
+    );
+    if (!ok) return;
+
+    try {
+      // 1. Cerrar la pausa con timestamp actual
+      const { error: errPausa } = await supabaseClient
+        .from('historial_pausas')
+        .update({ hora_reanudacion: new Date().toISOString() })
+        .eq('id', pausa.id);
+      if (errPausa) throw errPausa;
+
+      // 2. NO cambiar estado del servicio — sigue en 'pausado'
+      //    Esto es CLAVE: la pausa cierra (cronómetro se detiene) pero el servicio
+      //    queda marcado como pausado para que mañana se vea como tal.
+
+      Utils.log(`Día cerrado para servicio ${servicioId} por ${rol} (${this.state.profile.nombre})`);
+    } catch (e) {
+      console.error('Error cerrando día:', e);
+      alert('Error al cerrar el día: ' + (e.message || 'desconocido'));
+    }
+  },
+
   enRango(fechaIso) {
     if (!fechaIso) return false;
     const f = new Date(fechaIso);
@@ -833,7 +884,7 @@ const Admin = {
                       <span class="actividad-nombre">${Utils.escapeHtml(this.nombreServicio(sp.servicio_id))}</span>
                       ${motivo ? `<span class="motivo-tag ${esAusente ? 'motivo-ausente' : ''}">${motivo}</span>` : ''}
                       <span class="actividad-cronos pausa-cronos-inline" id="pausa-cron-inline-${sp.id}" data-inicio="${pausa?.hora_pausa || ''}">--:--:--</span>
-                      ${esAusente ? `<button type="button" class="btn-reanudar-remoto" data-action="reanudar-remoto" data-sid="${sp.id}" title="Reanudar">▶</button>` : ''}
+                      ${esAusente ? `<button type="button" class="btn-reanudar-remoto" data-action="reanudar-remoto" data-sid="${sp.id}" title="Reanudar">▶</button><button type="button" class="btn-cerrar-dia" data-action="cerrar-dia" data-sid="${sp.id}" data-tid="${t.id}" title="Cerrar día (no vuelve hoy)">⏹</button>` : ''}
                     </div>`;
           }).join('');
         }
@@ -861,7 +912,7 @@ const Admin = {
                     <span class="actividad-nombre">${Utils.escapeHtml(this.nombreServicio(sp.servicio_id))}</span>
                     ${motivo ? `<span class="motivo-tag ${esAusente ? 'motivo-ausente' : ''}">${motivo}</span>` : ''}
                     <span class="actividad-cronos pausa-cronos-inline" id="pausa-cron-inline-${sp.id}" data-inicio="${pausa?.hora_pausa || ''}">--:--:--</span>
-                    ${esAusente ? `<button type="button" class="btn-reanudar-remoto" data-action="reanudar-remoto" data-sid="${sp.id}" title="Reanudar">▶</button>` : ''}
+                    ${esAusente ? `<button type="button" class="btn-reanudar-remoto" data-action="reanudar-remoto" data-sid="${sp.id}" title="Reanudar">▶</button><button type="button" class="btn-cerrar-dia" data-action="cerrar-dia" data-sid="${sp.id}" data-tid="${t.id}" title="Cerrar día (no vuelve hoy)">⏹</button>` : ''}
                   </div>`;
         }).join('');
 
@@ -906,6 +957,10 @@ const Admin = {
         } else if (action === 'reanudar-remoto') {
           const sid = parseInt(btn.dataset.sid, 10);
           this.reanudarServicioRemoto(sid);
+        } else if (action === 'cerrar-dia') {
+          const sid = parseInt(btn.dataset.sid, 10);
+          const tid = btn.dataset.tid;
+          this.cerrarDiaServicioRemoto(sid, tid);
         }
       });
     }
