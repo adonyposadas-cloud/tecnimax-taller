@@ -53,6 +53,12 @@ const Admin = {
     document.getElementById('user-nombre-header').textContent = profile.nombre || 'Administración';
     document.getElementById('btn-logout').addEventListener('click', () => Auth.logout());
 
+    // Bind del botón maestro "Cerrar día de todos"
+    const btnCerrarTodos = document.getElementById('btn-cerrar-dia-todos');
+    if (btnCerrarTodos) {
+      btnCerrarTodos.addEventListener('click', () => this.cerrarDiaTodosRemoto());
+    }
+
     // Si entra el jefe (no admin), mostrar "Volver al panel" y ocultar "Configuración"
     if (profile.rol === 'jefe_pista') {
       const btnVolver = document.getElementById('btn-volver-jefe');
@@ -365,6 +371,58 @@ const Admin = {
     }
   },
 
+  // ===== CERRAR DÍA DE TODOS: cerrar todas las pausas abiertas con un click =====
+  async cerrarDiaTodosRemoto() {
+    const rol = this.state.profile?.rol;
+    if (!['admin', 'jefe_pista'].includes(rol)) {
+      alert('No tienes permiso para cerrar día.');
+      return;
+    }
+
+    // Recolectar TODAS las pausas abiertas en memoria
+    const pausasAbiertas = (this.state.pausas || []).filter(p => !p.hora_reanudacion);
+
+    if (pausasAbiertas.length === 0) {
+      alert('No hay pausas abiertas para cerrar.');
+      return;
+    }
+
+    // Preparar resumen para el confirm
+    const lineas = pausasAbiertas.map(p => {
+      const tec = this.state.usuarios.find(u => u.id === p.tecnico_id);
+      const serv = this.state.servicios.find(s => s.id === p.servicio_orden_id);
+      const orden = serv ? this.state.ordenes.find(o => o.num_orden === serv.num_orden) : null;
+      const placa = orden?.placa || '—';
+      return `  • ${tec?.nombre || 'desconocido'} — ${placa} (${p.motivo})`;
+    });
+
+    const ok = confirm(
+      `¿Cerrar el día de ${pausasAbiertas.length} pausa(s) abierta(s)?\n\n` +
+      lineas.join('\n') + '\n\n' +
+      `Esto detiene todos los cronómetros AHORA.\n` +
+      `Los servicios quedan pausados. Mañana los técnicos los reanudan y continúan.`
+    );
+    if (!ok) return;
+
+    try {
+      // Cerrar todas en una sola transacción simulada (UPDATE masivo por IDs)
+      const ids = pausasAbiertas.map(p => p.id);
+      const ahora = new Date().toISOString();
+
+      const { error } = await supabaseClient
+        .from('historial_pausas')
+        .update({ hora_reanudacion: ahora })
+        .in('id', ids);
+      if (error) throw error;
+
+      Utils.log(`Cerrado día masivo: ${ids.length} pausas cerradas por ${rol}`);
+      alert(`✅ ${ids.length} pausa(s) cerrada(s) correctamente.`);
+    } catch (e) {
+      console.error('Error cerrando día masivo:', e);
+      alert('Error al cerrar las pausas: ' + (e.message || 'desconocido'));
+    }
+  },
+
   async reanudarServicioRemoto(servicioId) {
     const rol = this.state.profile?.rol;
     if (!['admin', 'jefe_pista'].includes(rol)) {
@@ -504,10 +562,7 @@ const Admin = {
       alert('Este servicio no tiene una pausa abierta.');
       return;
     }
-    if (pausa.motivo !== 'ausente') {
-      alert('Solo se puede cerrar día de pausas por ausencia.');
-      return;
-    }
+    // Permitir cerrar día para CUALQUIER motivo (ausente, repuesto, cambio_unidad, personal, reasignacion_jefe)
 
     const tecnico = this.state.usuarios.find(u => u.id === tecnicoId);
     const nombreTec = tecnico?.nombre || 'el técnico';
@@ -983,7 +1038,7 @@ const Admin = {
                       <span class="actividad-nombre">${Utils.escapeHtml(this.nombreServicio(sp.servicio_id))}</span>
                       ${motivo ? `<span class="motivo-tag ${esAusente ? 'motivo-ausente' : ''}">${motivo}</span>` : ''}
                       <span class="actividad-cronos pausa-cronos-inline" id="pausa-cron-inline-${sp.id}" data-inicio="${pausa?.hora_pausa || ''}">--:--:--</span>
-                      ${esAusente ? `<button type="button" class="btn-reanudar-remoto" data-action="reanudar-remoto" data-sid="${sp.id}" title="Reanudar">▶</button><button type="button" class="btn-cerrar-dia" data-action="cerrar-dia" data-sid="${sp.id}" data-tid="${t.id}" title="Cerrar día (no vuelve hoy)">⏹</button>` : ''}
+                      ${esAusente ? `<button type="button" class="btn-reanudar-remoto" data-action="reanudar-remoto" data-sid="${sp.id}" title="Reanudar">▶</button>` : ''}${pausa ? `<button type="button" class="btn-cerrar-dia" data-action="cerrar-dia" data-sid="${sp.id}" data-tid="${t.id}" title="Cerrar día">⏹</button>` : ''}
                     </div>`;
           }).join('');
         }
@@ -1011,7 +1066,7 @@ const Admin = {
                     <span class="actividad-nombre">${Utils.escapeHtml(this.nombreServicio(sp.servicio_id))}</span>
                     ${motivo ? `<span class="motivo-tag ${esAusente ? 'motivo-ausente' : ''}">${motivo}</span>` : ''}
                     <span class="actividad-cronos pausa-cronos-inline" id="pausa-cron-inline-${sp.id}" data-inicio="${pausa?.hora_pausa || ''}">--:--:--</span>
-                    ${esAusente ? `<button type="button" class="btn-reanudar-remoto" data-action="reanudar-remoto" data-sid="${sp.id}" title="Reanudar">▶</button><button type="button" class="btn-cerrar-dia" data-action="cerrar-dia" data-sid="${sp.id}" data-tid="${t.id}" title="Cerrar día (no vuelve hoy)">⏹</button>` : ''}
+                    ${esAusente ? `<button type="button" class="btn-reanudar-remoto" data-action="reanudar-remoto" data-sid="${sp.id}" title="Reanudar">▶</button>` : ''}${pausa ? `<button type="button" class="btn-cerrar-dia" data-action="cerrar-dia" data-sid="${sp.id}" data-tid="${t.id}" title="Cerrar día">⏹</button>` : ''}
                   </div>`;
         }).join('');
 
@@ -1041,6 +1096,18 @@ const Admin = {
 
     document.getElementById('tecnicos-stats').textContent =
       `${trabajando} trabajando · ${pausado} pausados · ${libre} libres`;
+
+    // Mostrar/ocultar botón maestro "Cerrar día de todos" según haya pausas abiertas
+    const btnCerrarTodos = document.getElementById('btn-cerrar-dia-todos');
+    if (btnCerrarTodos) {
+      const pausasAbiertasCount = (this.state.pausas || []).filter(p => !p.hora_reanudacion).length;
+      if (pausasAbiertasCount > 0) {
+        btnCerrarTodos.hidden = false;
+        btnCerrarTodos.textContent = `🔚 Cerrar día (${pausasAbiertasCount})`;
+      } else {
+        btnCerrarTodos.hidden = true;
+      }
+    }
 
     // Event delegation para botones de pausa/reanuda remota (un solo listener que sobrevive re-renders)
     if (!cont.dataset.boundRemota) {
