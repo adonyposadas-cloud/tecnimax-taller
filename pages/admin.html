@@ -97,7 +97,10 @@
     <section class="card">
       <div class="card-header">
         <h2 class="section-title-h2">Estado de técnicos en vivo</h2>
-        <span class="card-badge" id="tecnicos-stats">—</span>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button type="button" id="btn-cerrar-dia-todos" class="btn-cerrar-todos" hidden>🔚 Cerrar día de todos</button>
+          <span class="card-badge" id="tecnicos-stats">—</span>
+        </div>
       </div>
       <div id="tecnicos-list" class="tecnicos-list">
         <div class="empty-state"><p>Cargando técnicos...</p></div>
@@ -214,6 +217,23 @@
       background: rgba(108, 117, 125, 0.25);
       border-color: rgba(108, 117, 125, 0.70);
       color: #fff;
+    }
+
+    .btn-cerrar-todos {
+      background: rgba(108, 117, 125, 0.15);
+      border: 1px solid rgba(108, 117, 125, 0.45);
+      color: var(--text-primary, #e6e9ef);
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn-cerrar-todos:hover {
+      background: rgba(220, 53, 69, 0.20);
+      border-color: var(--rojo-urgente, #dc3545);
+      color: var(--rojo-urgente, #dc3545);
     }
     .motivo-tag.motivo-ausente {
       background: rgba(220, 53, 69, 0.18);
