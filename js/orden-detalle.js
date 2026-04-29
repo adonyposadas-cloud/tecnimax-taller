@@ -800,8 +800,8 @@ Hora: ${this.fmtHora()}`;
         accionesJefe += `<button class="btn-mini-jefe" data-action="reasignar" data-sid="${s.id}">↔ Reasignar técnico</button>`;
       }
 
-      // Quitar servicio (solo si pendiente y orden abierta)
-      if (s.estado === 'pendiente' && this.state.orden?.estado === 'abierta') {
+      // Quitar servicio (solo si pendiente y orden abierta o en progreso)
+      if (s.estado === 'pendiente' && (this.state.orden?.estado === 'abierta' || this.state.orden?.estado === 'en_progreso')) {
         accionesJefe += `<button class="btn-mini-jefe btn-mini-danger" data-action="quitar-servicio" data-sid="${s.id}">✗ Quitar</button>`;
       }
 
