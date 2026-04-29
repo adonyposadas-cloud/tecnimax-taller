@@ -834,8 +834,27 @@ Hora: ${this.fmtHora()}`;
     const update = () => {
       const inicioMs = new Date(servicio.hora_inicio).getTime();
       const ahora = Date.now();
-      const segPausados = this.segundosPausados(id);
-      const transcurridoMs = ahora - inicioMs - (segPausados * 1000);
+
+      // FIX: si el servicio cruzó la medianoche, el cronómetro UI muestra solo
+      // el tiempo trabajado HOY (desde hoy 00:00), no el acumulado de días previos.
+      // El cálculo de tiempo_real_min al TERMINAR sigue usando el total con pausas.
+      const hoyCero = new Date();
+      hoyCero.setHours(0, 0, 0, 0);
+      const inicioEfectivoMs = Math.max(inicioMs, hoyCero.getTime());
+
+      // Pausas: solo descontar la porción que cae DENTRO del día actual.
+      let segPausadosHoy = 0;
+      const pausasHoy = (this.state.pausas || [])
+        .filter(p => p.servicio_orden_id === id && p.hora_reanudacion !== null);
+      pausasHoy.forEach(p => {
+        const pIni = new Date(p.hora_pausa).getTime();
+        const pFin = new Date(p.hora_reanudacion).getTime();
+        const a = Math.max(pIni, hoyCero.getTime());
+        const b = Math.min(pFin, ahora);
+        if (b > a) segPausadosHoy += (b - a) / 1000;
+      });
+
+      const transcurridoMs = ahora - inicioEfectivoMs - (segPausadosHoy * 1000);
       if (transcurridoMs < 0) {
         const el = document.getElementById('cronos-' + id);
         if (el) el.textContent = '00:00:00';
@@ -1209,6 +1228,10 @@ Hora: ${this.fmtHora()}`;
           if (pausaCheck && pausaCheck.length > 0) {
             throw new Error('No se pudo cerrar la pausa abierta. El tiempo se calcularía mal. Avisa al jefe.');
           }
+          // No había pausa abierta. Es el caso "se cerró el día ayer con el botón
+          // Cerrar día" o "TERMINAR sin REANUDAR primero": detectar gap nocturno
+          // y crear pausa automática para que cubra ese tiempo muerto.
+          await this.crearPausaAutomaticaSiGap(sid);
         }
 
         // Refrescar pausas para el cálculo
