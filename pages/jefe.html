@@ -62,10 +62,18 @@
     <div class="tabs">
       <button class="tab tab-active" data-tab="activas">Activas <span id="count-activas">0</span></button>
       <button class="tab" data-tab="completadas">Completadas</button>
+      <button class="tab" data-tab="canceladas">Canceladas</button>
       <button class="tab" data-tab="todas">Todas</button>
     </div>
     <button id="btn-nueva-orden" class="btn-primary-action">+ Nueva orden</button>
     <a id="btn-ver-tablero" href="admin.html" class="btn-ver-tablero" title="Ver tablero completo del taller">📊 Ver tablero</a>
+  </section>
+
+  <section class="busqueda-ordenes-bar">
+    <div class="busqueda-ordenes-wrap">
+      <input type="search" id="busqueda-ordenes" class="busqueda-ordenes-input" placeholder="🔍 Buscar por placa o número de orden (ej: 1382 o OT-0052)" autocomplete="off" />
+      <button type="button" id="btn-clear-busqueda" class="busqueda-ordenes-clear" hidden title="Limpiar búsqueda">✕</button>
+    </div>
   </section>
 
   <section class="orders-table">
@@ -215,6 +223,67 @@
   </div>
 
   <style>
+    /* ===== Barra de búsqueda de órdenes ===== */
+    .busqueda-ordenes-bar {
+      margin: 0 0 var(--sp-3) 0;
+    }
+    .busqueda-ordenes-wrap {
+      position: relative;
+      width: 100%;
+    }
+    .busqueda-ordenes-input {
+      width: 100%;
+      padding: 11px 38px 11px 14px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      color: var(--text);
+      font-size: 0.95rem;
+      font-family: inherit;
+      box-sizing: border-box;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .busqueda-ordenes-input::placeholder {
+      color: var(--text-dim);
+    }
+    .busqueda-ordenes-input:focus {
+      outline: none;
+      border-color: var(--azul);
+      background: rgba(255,255,255,0.08);
+    }
+    .busqueda-ordenes-clear {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(255,255,255,0.08);
+      border: 1px solid var(--border);
+      color: var(--text);
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      padding: 0;
+      line-height: 1;
+    }
+    .busqueda-ordenes-clear:hover {
+      background: rgba(255,255,255,0.16);
+    }
+
+    /* ===== Badge cancelada ===== */
+    .badge-cancelada {
+      background: rgba(140, 140, 140, 0.18);
+      color: #b8b8b8;
+      border: 1px solid rgba(180, 180, 180, 0.25);
+    }
+    .order-row.row-cancelada {
+      opacity: 0.55;
+    }
+
     /* ===== Botón Ver tablero ===== */
     .btn-ver-tablero {
       display: inline-flex;
