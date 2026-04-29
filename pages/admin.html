@@ -38,6 +38,8 @@
         <button class="rango-tab rango-active" data-rango="hoy">Hoy</button>
         <button class="rango-tab" data-rango="semana">Esta semana</button>
         <button class="rango-tab" data-rango="mes">Este mes</button>
+        <button class="rango-tab" data-rango="dia" title="Seleccionar un día específico">📅 Día...</button>
+        <input type="date" id="rango-fecha-input" class="rango-fecha-input" aria-label="Seleccionar fecha" />
       </div>
       <div class="rango-info" id="rango-info">—</div>
     </section>
@@ -145,6 +147,22 @@
   </div>
 
   <style>
+    /* ===== Input de fecha del selector "Día..." =====
+       Oculto visualmente pero accesible. El picker se dispara desde el botón "📅 Día...". */
+    .rango-fecha-input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+      opacity: 0;
+      pointer-events: none;
+    }
+
     /* ===== Botón Configuración ===== */
     .btn-config {
       display: inline-flex;
