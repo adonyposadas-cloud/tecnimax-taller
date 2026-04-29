@@ -17,9 +17,10 @@ const Admin = {
 
   state: {
     profile: null,
-    rango: 'hoy',  // 'hoy' | 'semana' | 'mes'
+    rango: 'hoy',  // 'hoy' | 'semana' | 'mes' | 'dia'
     fechaDesde: null,
     fechaHasta: null,
+    fechaEspecifica: null,  // 'YYYY-MM-DD' cuando rango = 'dia'
 
     ordenes: [],
     servicios: [],
@@ -79,16 +80,77 @@ const Admin = {
     document.querySelectorAll('.rango-tab').forEach(tab => {
       tab.addEventListener('click', () => {
         const r = tab.dataset.rango;
+
+        // Caso especial: tab "dia" abre el selector de fecha
+        if (r === 'dia') {
+          const input = document.getElementById('rango-fecha-input');
+          if (input) {
+            // Pre-llenar con la fecha actualmente seleccionada o ayer
+            if (!input.value) {
+              const ayer = new Date();
+              ayer.setDate(ayer.getDate() - 1);
+              input.value = ayer.toISOString().split('T')[0];
+            }
+            // Limitar máximo a hoy
+            const hoyStr = new Date().toISOString().split('T')[0];
+            input.max = hoyStr;
+            // Disparar el picker nativo
+            try { input.showPicker(); } catch (e) { input.click(); input.focus(); }
+          }
+          return;
+        }
+
         if (r === this.state.rango) return;
 
         document.querySelectorAll('.rango-tab').forEach(t => t.classList.remove('rango-active'));
         tab.classList.add('rango-active');
         this.state.rango = r;
+        this.state.fechaEspecifica = null;
+
+        // Resetear texto del botón "Día..." si se sale de ese modo
+        const tabDiaReset = document.querySelector('.rango-tab[data-rango="dia"]');
+        if (tabDiaReset) tabDiaReset.textContent = '📅 Día...';
+
         this.calcularRango();
         this.actualizarRangoInfo();
         this.cargarTodo();
       });
     });
+
+    // Selector de fecha específica
+    const inputFecha = document.getElementById('rango-fecha-input');
+    if (inputFecha) {
+      inputFecha.addEventListener('change', (e) => {
+        const valor = e.target.value;  // 'YYYY-MM-DD'
+        if (!valor) return;
+
+        // Validar que no sea futura
+        const hoy = new Date();
+        hoy.setHours(23, 59, 59, 999);
+        const seleccionada = new Date(valor + 'T00:00:00');
+        if (seleccionada > hoy) {
+          alert('No se puede seleccionar una fecha futura.');
+          return;
+        }
+
+        this.state.rango = 'dia';
+        this.state.fechaEspecifica = valor;
+
+        // Marcar el tab "dia" como activo
+        document.querySelectorAll('.rango-tab').forEach(t => t.classList.remove('rango-active'));
+        const tabDia = document.querySelector('.rango-tab[data-rango="dia"]');
+        if (tabDia) {
+          tabDia.classList.add('rango-active');
+          // Mostrar la fecha en el botón
+          const fmt = `${String(seleccionada.getDate()).padStart(2,'0')}/${String(seleccionada.getMonth()+1).padStart(2,'0')}`;
+          tabDia.textContent = `📅 ${fmt}`;
+        }
+
+        this.calcularRango();
+        this.actualizarRangoInfo();
+        this.cargarTodo();
+      });
+    }
 
     document.getElementById('btn-toggle-alertas').addEventListener('click', () => {
       const lista = document.getElementById('alerta-lista');
@@ -133,33 +195,68 @@ const Admin = {
   calcularRango() {
     const ahora = new Date();
     const desde = new Date(ahora);
+    let hasta = new Date(ahora);
 
     if (this.state.rango === 'hoy') {
       desde.setHours(0, 0, 0, 0);
+      // hasta = ahora
     } else if (this.state.rango === 'semana') {
       // Lunes 00:00 de esta semana
       const diaSemana = desde.getDay();  // 0=domingo, 1=lunes...
       const diff = diaSemana === 0 ? 6 : diaSemana - 1;
       desde.setDate(desde.getDate() - diff);
       desde.setHours(0, 0, 0, 0);
+      // hasta = ahora
     } else if (this.state.rango === 'mes') {
       desde.setDate(1);
       desde.setHours(0, 0, 0, 0);
+      // hasta = ahora
+    } else if (this.state.rango === 'dia' && this.state.fechaEspecifica) {
+      // Día específico seleccionado del calendario.
+      // fechaEspecifica viene como 'YYYY-MM-DD' (input type=date) o ISO.
+      const partes = String(this.state.fechaEspecifica).split('T')[0].split('-');
+      const y = parseInt(partes[0], 10);
+      const m = parseInt(partes[1], 10) - 1;
+      const d = parseInt(partes[2], 10);
+      desde.setFullYear(y, m, d);
+      desde.setHours(0, 0, 0, 0);
+      hasta = new Date(desde);
+      hasta.setHours(23, 59, 59, 999);
+      // Si el día seleccionado es hoy, hasta = ahora (no futuro)
+      if (hasta > ahora) hasta = ahora;
     }
 
     this.state.fechaDesde = desde.toISOString();
-    this.state.fechaHasta = new Date().toISOString();
+    this.state.fechaHasta = hasta.toISOString();
 
     // Labels en las secciones
-    const labels = { hoy: 'hoy', semana: 'esta semana', mes: 'este mes' };
-    document.getElementById('prod-rango-label').textContent = labels[this.state.rango];
-    document.getElementById('canc-rango-label').textContent = labels[this.state.rango];
+    const fmt = (d) => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+    let labelTexto;
+    if (this.state.rango === 'hoy') labelTexto = 'hoy';
+    else if (this.state.rango === 'semana') labelTexto = 'esta semana';
+    else if (this.state.rango === 'mes') labelTexto = 'este mes';
+    else if (this.state.rango === 'dia') labelTexto = fmt(desde);
+    else labelTexto = '—';
+
+    const lblProd = document.getElementById('prod-rango-label');
+    const lblCanc = document.getElementById('canc-rango-label');
+    if (lblProd) lblProd.textContent = labelTexto;
+    if (lblCanc) lblCanc.textContent = labelTexto;
   },
 
   actualizarRangoInfo() {
     const desde = new Date(this.state.fechaDesde);
+    const hasta = new Date(this.state.fechaHasta);
     const fmt = (d) => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
-    document.getElementById('rango-info').textContent = `Desde ${fmt(desde)}`;
+    const el = document.getElementById('rango-info');
+    if (!el) return;
+    if (this.state.rango === 'dia') {
+      el.textContent = `Día ${fmt(desde)}`;
+    } else if (this.state.rango === 'hoy') {
+      el.textContent = `Hoy ${fmt(desde)}`;
+    } else {
+      el.textContent = `Desde ${fmt(desde)}`;
+    }
   },
 
   // ==================== CARGA DE DATOS ====================
@@ -1217,17 +1314,58 @@ const Admin = {
     const cont = document.getElementById('productividad-list');
 
     // ========================================================================
-    // FASE 1: Filtrar TODOS los servicios del rango (completados + pausados + en progreso)
+    // FIX: Acotar TODOS los cálculos a la ventana del rango.
+    // Si un servicio se inició ayer y se completó hoy, solo cuenta lo trabajado
+    // dentro del rango (ej: para "hoy", desde hoy 00:00 hasta ahora).
+    // El tiempo en pausa (incluida la noche) NUNCA suma como tiempo trabajado.
     // ========================================================================
-    // Un servicio "toca" el rango si:
-    //  - Completado: hora_fin en rango
-    //  - Pausado o en_progreso: hora_inicio en rango (porque no tiene hora_fin definitiva)
+    const rangoIni = new Date(this.state.fechaDesde);
+    const rangoFin = new Date(this.state.fechaHasta);
+    const ahora = new Date();
+
+    // Helper: intersección de [aIni, aFin] con [bIni, bFin] devuelta en minutos.
+    // Devuelve 0 si no hay intersección.
+    const interseccionMin = (aIni, aFin, bIni, bFin) => {
+      if (!aIni || !aFin) return 0;
+      const ini = aIni > bIni ? aIni : bIni;
+      const fin = aFin < bFin ? aFin : bFin;
+      if (fin <= ini) return 0;
+      return Math.round((fin - ini) / 60000);
+    };
+
+    // Helper: suma minutos de pausas CERRADAS de un servicio que intersectan
+    // la ventana [desde, hasta]. Pausas abiertas no se cuentan (no tienen fin).
+    const pausasServicioInter = (servicioId, desde, hasta) => {
+      if (!Array.isArray(this.state.pausas) || this.state.pausas.length === 0) return 0;
+      let total = 0;
+      this.state.pausas.forEach(p => {
+        if (p.servicio_orden_id !== servicioId) return;
+        if (!p.hora_pausa || !p.hora_reanudacion) return;
+        total += interseccionMin(new Date(p.hora_pausa), new Date(p.hora_reanudacion), desde, hasta);
+      });
+      return total;
+    };
+
+    // ========================================================================
+    // FASE 1: Filtrar servicios que TOCAN el rango (intersección no vacía)
+    // ========================================================================
     const serviciosRango = this.state.servicios.filter(s => {
-      if (s.estado === 'completado') return this.enRango(s.hora_fin);
-      if (s.estado === 'pausado' || s.estado === 'en_progreso') {
-        return s.hora_inicio && this.enRango(s.hora_inicio);
+      if (!s.hora_inicio) return false;
+      const ini = new Date(s.hora_inicio);
+      let fin;
+      if (s.estado === 'completado') {
+        if (!s.hora_fin) return false;
+        fin = new Date(s.hora_fin);
+      } else if (s.estado === 'pausado') {
+        const pausa = this.pausaAbierta(s.id);
+        fin = pausa ? new Date(pausa.hora_pausa) : ahora;
+      } else if (s.estado === 'en_progreso') {
+        fin = ahora;
+      } else {
+        return false;
       }
-      return false;
+      // ¿Hay intersección con el rango?
+      return ini < rangoFin && fin > rangoIni;
     });
 
     if (serviciosRango.length === 0) {
@@ -1236,7 +1374,7 @@ const Admin = {
     }
 
     // ========================================================================
-    // FASE 2: Agrupar por técnico y calcular métricas
+    // FASE 2: Agrupar por técnico y calcular métricas (todo acotado al rango)
     // ========================================================================
     const stats = {};
     tecnicos.forEach(t => {
@@ -1245,15 +1383,13 @@ const Admin = {
         nombre: t.nombre,
         codigo: t.codigo,
         servicios: 0,
-        tiempoReal: 0,         // Suma de duraciones (incluye parciales)
+        tiempoReal: 0,         // Suma de tiempos trabajados DENTRO del rango
         tiempoEsperado: 0,
         listaServicios: [],
-        primerInicio: null,
-        ultimoFin: null,
+        primerInicio: null,    // ya acotado a rangoIni
+        ultimoFin: null,       // ya acotado a rangoFin
       };
     });
-
-    const ahora = new Date();
 
     serviciosRango.forEach(s => {
       if (!stats[s.tecnico_id]) return;
@@ -1265,52 +1401,42 @@ const Admin = {
       const mediana = cat?.tiempo_promedio_min || 0;
       st.tiempoEsperado += mediana;
 
-      // Calcular tiempo trabajado según estado
-      let tiempoMin = 0;
-      let finReferencia = null;  // para timeline (último_fin)
-
+      // Determinar [iniReal, finReal] del servicio
+      const ini = new Date(s.hora_inicio);
+      let finReal;
       if (s.estado === 'completado') {
-        // Caso simple: usar tiempo_real_min ya calculado
-        tiempoMin = s.tiempo_real_min || 0;
-        finReferencia = s.hora_fin ? new Date(s.hora_fin) : null;
+        finReal = new Date(s.hora_fin);
       } else if (s.estado === 'pausado') {
-        // Tiempo trabajado = (hora_pausa_actual - hora_inicio) - pausas previas cerradas
-        // Si no encuentra pausa abierta, usar última pausa cerrada o NOW
         const pausa = this.pausaAbierta(s.id);
-        const ini = s.hora_inicio ? new Date(s.hora_inicio) : null;
-        if (ini) {
-          const finVentana = pausa ? new Date(pausa.hora_pausa) : ahora;
-          const pausasPreviasMin = this.pausasPreviasMinutos(s.id, ini, finVentana);
-          tiempoMin = Math.max(0, Math.round((finVentana - ini) / 60000) - pausasPreviasMin);
-          finReferencia = finVentana;
-        }
-      } else if (s.estado === 'en_progreso') {
-        // Tiempo trabajado = (NOW - hora_inicio) - pausas cerradas
-        const ini = s.hora_inicio ? new Date(s.hora_inicio) : null;
-        if (ini) {
-          const pausasPreviasMin = this.pausasPreviasMinutos(s.id, ini, ahora);
-          tiempoMin = Math.max(0, Math.round((ahora - ini) / 60000) - pausasPreviasMin);
-          finReferencia = ahora;
-        }
+        finReal = pausa ? new Date(pausa.hora_pausa) : ahora;
+      } else { // en_progreso
+        finReal = ahora;
       }
+
+      // Acotar al rango (esto es la clave del fix)
+      const iniAcotado = ini > rangoIni ? ini : rangoIni;
+      const finAcotado = finReal < rangoFin ? finReal : rangoFin;
+      if (finAcotado <= iniAcotado) return;
+
+      // Tiempo bruto en la ventana acotada
+      const brutoMin = Math.round((finAcotado - iniAcotado) / 60000);
+      // Pausas que cayeron en la ventana acotada (descontadas, no se cuentan como activo)
+      const pausasMin = pausasServicioInter(s.id, iniAcotado, finAcotado);
+      const tiempoMin = Math.max(0, brutoMin - pausasMin);
       st.tiempoReal += tiempoMin;
 
-      // Tracking timeline (con todos los servicios del rango)
-      const ini = s.hora_inicio ? new Date(s.hora_inicio) : null;
-      if (ini && (!st.primerInicio || ini < st.primerInicio)) st.primerInicio = ini;
-      if (finReferencia && (!st.ultimoFin || finReferencia > st.ultimoFin)) st.ultimoFin = finReferencia;
+      // Tracking timeline (también acotado al rango)
+      if (!st.primerInicio || iniAcotado < st.primerInicio) st.primerInicio = iniAcotado;
+      if (!st.ultimoFin || finAcotado > st.ultimoFin) st.ultimoFin = finAcotado;
     });
 
     // ========================================================================
-    // FASE 3: Calcular Tiempo Activo y Aprovechamiento (solo en rango "hoy")
+    // FASE 3: Calcular Tiempo Activo y Aprovechamiento
+    // T. Activo = ventana del técnico (ya acotada al rango) − pausas en esa ventana
     // ========================================================================
-    const calcularActivoYAprov = (this.state.rango === 'hoy');
-
     Object.values(stats).forEach(st => {
-      if (calcularActivoYAprov && st.primerInicio && st.ultimoFin) {
-        const ventanaMs = st.ultimoFin - st.primerInicio;
-        const ventanaMin = Math.max(0, Math.round(ventanaMs / 60000));
-
+      if (st.primerInicio && st.ultimoFin) {
+        const ventanaMin = Math.max(0, Math.round((st.ultimoFin - st.primerInicio) / 60000));
         const pausasMin = this.calcularPausasTecnicoEnRango(st.id, st.primerInicio, st.ultimoFin);
         st.tiempoActivo = Math.max(0, ventanaMin - pausasMin);
 
