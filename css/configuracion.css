@@ -2,9 +2,129 @@
    TECNIMAX TALLER — Estilos de Configuración (admin only)
    ============================================================================= */
 
-/* Forzar que [hidden] gane sobre cualquier display:flex/block del CSS heredado.
-   Sin esto, los modales invisibles capturan todos los clicks. */
-[hidden] { display: none !important; }
+/* =============================================================================
+   FIX v1.7.1 — Reglas de modal completas
+   ============================================================================= */
+/* DIAGNÓSTICO: La regla anterior `[hidden] { display: none !important; }` solo
+   resolvía la mitad del problema. configuracion.html usa modales (.modal,
+   .modal-backdrop, .modal-card, .modal-body, .modal-desc, .modal-warn, .modal-small)
+   pero las reglas de esas clases viven SOLO en jefe.css — NO están en styles.css.
+   Por eso al quitar el atributo `hidden` el modal quedaba sin position, sin fondo,
+   sin tamaño y sin z-index, completamente invisible aunque presente en el DOM.
+   FIX: copiar las reglas .modal de jefe.css aquí, y restringir el [hidden]
+   agresivo solo a los descendientes que sí lo necesitan (errores y campos). */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--sp-5) var(--sp-3);
+  overflow-y: auto;
+}
+
+.modal[hidden] { display: none; }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.modal-card {
+  position: relative;
+  z-index: 1;
+  background: var(--azul-noche);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  width: 100%;
+  max-width: 720px;
+  box-shadow: var(--shadow-lg);
+  animation: modalSlideUp 0.3s ease-out;
+  margin: auto;
+}
+
+/* Variante compacta para los modales de Configuración (más pequeños que "Nueva orden") */
+.modal-card.modal-small {
+  max-width: 460px;
+}
+
+@keyframes modalSlideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-title {
+  flex: 1;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.modal-body {
+  padding: var(--sp-4) var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.modal-desc {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-2);
+  font-family: var(--font-mono);
+}
+
+.modal-warn {
+  color: var(--amarillo);
+  font-size: 0.78rem;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-5);
+  background: rgba(0,0,0,0.2);
+  border-top: 1px solid var(--border);
+}
+
+.required {
+  color: var(--rojo-urgente);
+  margin-left: 2px;
+}
+
+@media (max-width: 600px) {
+  .modal-card {
+    margin: 0;
+    border-radius: 0;
+    min-height: 100vh;
+  }
+  .modal-header,
+  .modal-body,
+  .modal-footer {
+    padding: var(--sp-3) var(--sp-4);
+  }
+}
+
+/* =============================================================================
+   FIN FIX v1.7.1
+   ============================================================================= */
+
 
 .config-main {
   max-width: 1100px;
