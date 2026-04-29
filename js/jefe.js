@@ -28,6 +28,8 @@ const Jefe = {
     alertasExpandidas: false,
     gruposWhatsapp: {},  // Cache de grupos (Fase 5b)
     waToastTimer: null,
+    busquedaOrdenes: '', // Filtro de búsqueda en vivo (placa o número de orden)
+    busquedaTimer: null, // v1.7.0: debounce del input de búsqueda
   },
 
   // ==================== INIT ====================
@@ -425,10 +427,34 @@ Disponibles para tomar.`;
       if (error) throw error;
 
       this.state.ordenes = data || [];
+
+      // FEATURE v1.7.0: pre-cargar vehículos de las órdenes para que la búsqueda
+      // por marca/modelo funcione sin necesidad de abrir el modal antes
+      await this.cachearVehiculosDeOrdenes();
+
       this.renderOrdenes();
       this.renderKPIs();
     } catch (err) {
       Utils.log('Error cargando órdenes:', err);
+    }
+  },
+
+  // v1.7.0: cachea los vehículos referenciados en las órdenes que aún no están en caché
+  async cachearVehiculosDeOrdenes() {
+    try {
+      const placasUnicas = [...new Set(this.state.ordenes.map(o => o.placa).filter(Boolean))];
+      const placasFaltantes = placasUnicas.filter(p => !this.state.vehiculos[p]);
+      if (placasFaltantes.length === 0) return;
+
+      const { data, error } = await supabaseClient
+        .from('vehiculos')
+        .select('placa, marca, modelo, anio')
+        .in('placa', placasFaltantes);
+      if (error) throw error;
+      (data || []).forEach(v => { this.state.vehiculos[v.placa] = v; });
+    } catch (err) {
+      Utils.log('Error precargando vehículos para búsqueda:', err);
+      // No-op: la búsqueda por placa/num_orden seguirá funcionando
     }
   },
 
@@ -437,10 +463,12 @@ Disponibles para tomar.`;
     const hoy = new Date();
     hoy.setHours(0, 0, 0, 0);
 
-    const enTaller = ords.filter(o => o.estado !== 'completada').length;
+    // FIX v1.7.0: excluir canceladas del KPI "En taller" y de las activas
+    const enTaller = ords.filter(o => o.estado !== 'completada' && o.estado !== 'cancelada').length;
     const ingresosHoy = ords.filter(o => new Date(o.creada_en) >= hoy).length;
     const enProceso = ords.filter(o => o.estado === 'en_progreso').length;
     const completadas = ords.filter(o => o.estado === 'completada').length;
+    const canceladas = ords.filter(o => o.estado === 'cancelada').length;
     const completadasHoy = ords.filter(o =>
       o.estado === 'completada' && o.cerrada_en && new Date(o.cerrada_en) >= hoy
     ).length;
@@ -455,6 +483,7 @@ Disponibles para tomar.`;
 
     // Actualizar también las otras pestañas si existen los spans
     const tabComp = document.querySelector('[data-tab="completadas"]');
+    const tabCanc = document.querySelector('[data-tab="canceladas"]');
     const tabTodas = document.querySelector('[data-tab="todas"]');
 
     if (tabComp) {
@@ -466,6 +495,18 @@ Disponibles para tomar.`;
       if (span) {
         span.textContent = completadas;
         span.style.display = completadas > 0 ? '' : 'none';
+      }
+    }
+
+    if (tabCanc) {
+      let span = tabCanc.querySelector('span');
+      if (!span && canceladas > 0) {
+        span = document.createElement('span');
+        tabCanc.appendChild(span);
+      }
+      if (span) {
+        span.textContent = canceladas;
+        span.style.display = canceladas > 0 ? '' : 'none';
       }
     }
 
@@ -487,9 +528,30 @@ Disponibles para tomar.`;
     let filtradas = this.state.ordenes;
 
     if (tab === 'activas') {
-      filtradas = filtradas.filter(o => o.estado !== 'completada');
+      // FIX v1.7.0: excluir también canceladas (no solo completadas)
+      filtradas = filtradas.filter(o => o.estado !== 'completada' && o.estado !== 'cancelada');
     } else if (tab === 'completadas') {
       filtradas = filtradas.filter(o => o.estado === 'completada');
+    } else if (tab === 'canceladas') {
+      // FEATURE v1.7.0: tab dedicado para canceladas
+      filtradas = filtradas.filter(o => o.estado === 'cancelada');
+    }
+    // 'todas' muestra TODAS incluyendo canceladas
+
+    // FEATURE v1.7.0: filtro de búsqueda en vivo
+    const q = this.normalizarTextoBusq(this.state.busquedaOrdenes || '');
+    if (q) {
+      filtradas = filtradas.filter(o => {
+        const placa = this.normalizarTextoBusq(o.placa);
+        const num = this.normalizarTextoBusq(o.num_orden);
+        const motivo = this.normalizarTextoBusq(o.motivo || '');
+        // Buscar también en datos del vehículo cacheado (marca/modelo)
+        const veh = this.state.vehiculos[o.placa] || {};
+        const marca = this.normalizarTextoBusq(veh.marca || '');
+        const modelo = this.normalizarTextoBusq(veh.modelo || '');
+        return placa.includes(q) || num.includes(q) || motivo.includes(q)
+            || marca.includes(q) || modelo.includes(q);
+      });
     }
 
     // Ordenar: urgentes primero, luego por fecha desc
@@ -503,15 +565,24 @@ Disponibles para tomar.`;
     const list = document.getElementById('orders-list');
 
     if (filtradas.length === 0) {
-      const mensaje = tab === 'completadas'
-        ? 'Aún no hay órdenes completadas.'
-        : tab === 'todas'
-          ? 'No hay órdenes registradas.'
-          : 'Sin órdenes activas.';
-
-      const sub = tab === 'activas'
-        ? 'Presiona <strong>+ Nueva orden</strong> para crear la primera.'
-        : '';
+      // FEATURE v1.7.0: mensaje específico cuando hay búsqueda activa
+      const hayBusqueda = !!(this.state.busquedaOrdenes || '').trim();
+      let mensaje, sub;
+      if (hayBusqueda) {
+        mensaje = `Ningún resultado para "${Utils.escapeHtml(this.state.busquedaOrdenes)}".`;
+        sub = 'Prueba con otra placa, número de orden o modelo.';
+      } else {
+        mensaje = tab === 'completadas'
+          ? 'Aún no hay órdenes completadas.'
+          : tab === 'canceladas'
+            ? 'No hay órdenes canceladas.'
+            : tab === 'todas'
+              ? 'No hay órdenes registradas.'
+              : 'Sin órdenes activas.';
+        sub = tab === 'activas'
+          ? 'Presiona <strong>+ Nueva orden</strong> para crear la primera.'
+          : '';
+      }
 
       list.innerHTML = `
         <div class="empty-state">
@@ -538,7 +609,10 @@ Disponibles para tomar.`;
           : `<span class="badge">${completados}/${totalServ}</span>`;
 
     let estadoBadge;
-    if (orden.estado === 'completada') {
+    if (orden.estado === 'cancelada') {
+      // FIX v1.7.0: badge gris para canceladas (antes caían al else y se veían como 'Abierta')
+      estadoBadge = '<span class="badge badge-cancelada">Cancelada</span>';
+    } else if (orden.estado === 'completada') {
       estadoBadge = '<span class="badge badge-completada">Completada</span>';
     } else if (orden.prioridad === 'urgente') {
       estadoBadge = '<span class="badge badge-urgente">Urgente</span>';
@@ -581,6 +655,32 @@ Disponibles para tomar.`;
         this.renderOrdenes();
       });
     });
+
+    // FEATURE v1.7.0: Búsqueda en vivo de órdenes (placa, número de orden, marca, modelo, motivo)
+    const inputBusqOrd = document.getElementById('busqueda-ordenes');
+    const btnClearBusq = document.getElementById('btn-clear-busqueda');
+    if (inputBusqOrd) {
+      inputBusqOrd.addEventListener('input', (e) => {
+        const val = e.target.value;
+        // Mostrar/ocultar botón ✕
+        if (btnClearBusq) btnClearBusq.hidden = !val;
+        // Debounce 150ms
+        if (this.state.busquedaTimer) clearTimeout(this.state.busquedaTimer);
+        this.state.busquedaTimer = setTimeout(() => {
+          this.state.busquedaOrdenes = val;
+          this.renderOrdenes();
+        }, 150);
+      });
+    }
+    if (btnClearBusq) {
+      btnClearBusq.addEventListener('click', () => {
+        if (inputBusqOrd) inputBusqOrd.value = '';
+        this.state.busquedaOrdenes = '';
+        btnClearBusq.hidden = true;
+        this.renderOrdenes();
+        if (inputBusqOrd) inputBusqOrd.focus();
+      });
+    }
 
     // Botón Nueva Orden
     document.getElementById('btn-nueva-orden').addEventListener('click', () => this.abrirModal());
