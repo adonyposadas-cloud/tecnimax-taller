@@ -621,7 +621,7 @@ const Configuracion = {
     try {
       const { data, error } = await supabaseClient
         .from('gps_km')
-        .select('fecha, subido_en, subido_por')
+        .select('fecha, creado_en, ingresado_por')
         .order('fecha', { ascending: false })
         .limit(2000);  // suficiente para reconstruir histórico
 
@@ -640,9 +640,9 @@ const Configuracion = {
         }
         const g = porFecha.get(r.fecha);
         g.count += 1;
-        const subTs = r.subido_en ? new Date(r.subido_en).getTime() : 0;
+        const subTs = r.creado_en ? new Date(r.creado_en).getTime() : 0;
         if (!g.ultimoSubido || subTs > new Date(g.ultimoSubido).getTime()) {
-          g.ultimoSubido = r.subido_en;
+          g.ultimoSubido = r.creado_en;
         }
       });
 
@@ -982,14 +982,14 @@ const Configuracion = {
     progressText.textContent = `Importando 0 / ${validas.length}...`;
 
     // Construir registros para upsert. Procesar en chunks de 200.
+    // Schema real: placa, fecha, metros_registrado, fuente (ENUM fuente_km), ingresado_por, creado_en
     const subidoPor = this.state.profile && this.state.profile.id ? this.state.profile.id : null;
     const registros = validas.map(f => ({
       placa: f.placa,
       fecha: f.fecha,
-      metros: f.metros,
-      km: f.km,
+      metros_registrado: f.metros,
       fuente: 'rpa_csv',
-      subido_por: subidoPor,
+      ingresado_por: subidoPor,
     }));
 
     const CHUNK = 200;
@@ -997,12 +997,63 @@ const Configuracion = {
     let fallos = 0;
     const erroresMsg = [];
 
+    // Helper: intenta upsert con los campos dados; si falla por columna inexistente
+    // o por valor de ENUM no aceptado, reintenta sin 'fuente'; si aún falla, con
+    // solo los esenciales (placa, fecha, metros_registrado).
+    const upsertConFallback = async (registrosCompletos) => {
+      // Intento 1: con todos los campos
+      const r1 = await supabaseClient
+        .from('gps_km')
+        .upsert(registrosCompletos, { onConflict: 'placa,fecha' });
+      if (!r1.error) return { error: null, modo: 'completo' };
+
+      const msg1 = (r1.error.message || '').toLowerCase();
+      const recoverable = msg1.includes('column') ||
+                          msg1.includes('schema cache') ||
+                          msg1.includes('could not find') ||
+                          msg1.includes('enum') ||
+                          msg1.includes('invalid input value');
+      if (!recoverable) return { error: r1.error, modo: 'completo' };
+
+      // Intento 2: sin 'fuente' (por si el ENUM rechazó 'rpa_csv')
+      const sinFuente = registrosCompletos.map(r => ({
+        placa: r.placa,
+        fecha: r.fecha,
+        metros_registrado: r.metros_registrado,
+        ingresado_por: r.ingresado_por,
+      }));
+      const r2 = await supabaseClient
+        .from('gps_km')
+        .upsert(sinFuente, { onConflict: 'placa,fecha' });
+      if (!r2.error) return { error: null, modo: 'sin_fuente' };
+
+      const msg2 = (r2.error.message || '').toLowerCase();
+      const recoverable2 = msg2.includes('column') ||
+                           msg2.includes('schema cache') ||
+                           msg2.includes('could not find');
+      if (!recoverable2) return { error: r2.error, modo: 'sin_fuente' };
+
+      // Intento 3: solo campos esenciales
+      const minimos = registrosCompletos.map(r => ({
+        placa: r.placa,
+        fecha: r.fecha,
+        metros_registrado: r.metros_registrado,
+      }));
+      const r3 = await supabaseClient
+        .from('gps_km')
+        .upsert(minimos, { onConflict: 'placa,fecha' });
+      return { error: r3.error, modo: 'minimo' };
+    };
+
+    let modoUsado = 'completo';
+
     try {
       for (let i = 0; i < registros.length; i += CHUNK) {
         const slice = registros.slice(i, i + CHUNK);
-        const { error } = await supabaseClient
-          .from('gps_km')
-          .upsert(slice, { onConflict: 'placa,fecha' });
+        const { error, modo } = await upsertConFallback(slice);
+        // Trackear el modo más restrictivo usado
+        if (modo === 'minimo') modoUsado = 'minimo';
+        else if (modo === 'sin_fuente' && modoUsado === 'completo') modoUsado = 'sin_fuente';
 
         if (error) {
           fallos += slice.length;
@@ -1023,10 +1074,16 @@ const Configuracion = {
 
       if (fallos === 0) {
         resultado.className = 'kmgps-resultado kmgps-resultado-ok';
+        let aviso = '';
+        if (modoUsado === 'sin_fuente') {
+          aviso = `<br><small style="color: var(--text-muted);">⚠️ El ENUM <code>fuente_km</code> no aceptó el valor <code>'rpa_csv'</code>. Se guardó sin la columna fuente. Avisame qué valores acepta el ENUM y lo ajusto.</small>`;
+        } else if (modoUsado === 'minimo') {
+          aviso = `<br><small style="color: var(--text-muted);">⚠️ Se guardó solo placa, fecha y metros. Si quieres también registrar usuario y fuente, mandame el detalle del schema y lo ajusto.</small>`;
+        }
         resultado.innerHTML = `
           ✅ <strong>Importación exitosa.</strong><br>
           ${insertados} registro${insertados === 1 ? '' : 's'} guardado${insertados === 1 ? '' : 's'} en gps_km
-          para la fecha <strong>${this._fmtFecha(this.state.kmgps.fechaCsv)}</strong>.
+          para la fecha <strong>${this._fmtFecha(this.state.kmgps.fechaCsv)}</strong>.${aviso}
         `;
       } else if (insertados > 0) {
         resultado.className = 'kmgps-resultado kmgps-resultado-error';
