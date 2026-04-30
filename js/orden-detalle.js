@@ -1265,13 +1265,21 @@ Hora: ${this.fmtHora()}`;
         .eq('id', sid);
       if (error) throw error;
 
-      // ¿Todos los servicios completados? -> cerrar orden
+      // ¿Todos los servicios completados o cancelados? -> cerrar orden
+      // FIX: un servicio cancelado cuenta como "finalizado" (no impide cerrar
+      // la orden), pero exigimos al menos 1 completado para no marcar como
+      // "completada" una orden donde TODO se canceló.
       const { data: todos } = await supabaseClient
         .from('servicios_orden')
         .select('estado')
         .eq('num_orden', this.state.numOrden);
 
-      if ((todos || []).every(x => x.estado === 'completado')) {
+      const todosArr = todos || [];
+      const todosFinalizados = todosArr.length > 0 &&
+        todosArr.every(x => x.estado === 'completado' || x.estado === 'cancelado');
+      const hayAlMenosUnoCompletado = todosArr.some(x => x.estado === 'completado');
+
+      if (todosFinalizados && hayAlMenosUnoCompletado) {
         await supabaseClient
           .from('ordenes')
           .update({ estado: 'completada', cerrada_en: ahora })
@@ -1666,6 +1674,27 @@ Hora: ${this.fmtHora()}`;
         .update({ estado: 'cancelado' })
         .eq('id', sid);
       if (error) throw error;
+
+      // FIX: si tras cancelar este servicio la orden ya quedó completamente
+      // finalizada (todos los demás están completados o cancelados), cerrarla.
+      // Esto evita que la orden se quede en "EN PROCESO" para siempre cuando
+      // el último servicio pendiente es uno que se canceló.
+      const { data: todos } = await supabaseClient
+        .from('servicios_orden')
+        .select('estado')
+        .eq('num_orden', this.state.numOrden);
+
+      const todosArr = todos || [];
+      const todosFinalizados = todosArr.length > 0 &&
+        todosArr.every(x => x.estado === 'completado' || x.estado === 'cancelado');
+      const hayAlMenosUnoCompletado = todosArr.some(x => x.estado === 'completado');
+
+      if (todosFinalizados && hayAlMenosUnoCompletado) {
+        await supabaseClient
+          .from('ordenes')
+          .update({ estado: 'completada', cerrada_en: new Date().toISOString() })
+          .eq('num_orden', this.state.numOrden);
+      }
 
       await this.cargarOrden();
     } catch (err) {
