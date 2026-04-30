@@ -81,22 +81,9 @@ const Admin = {
       tab.addEventListener('click', () => {
         const r = tab.dataset.rango;
 
-        // Caso especial: tab "dia" abre el selector de fecha
+        // Caso especial: tab "dia" abre el calendario custom (modal)
         if (r === 'dia') {
-          const input = document.getElementById('rango-fecha-input');
-          if (input) {
-            // Pre-llenar con la fecha actualmente seleccionada o ayer
-            if (!input.value) {
-              const ayer = new Date();
-              ayer.setDate(ayer.getDate() - 1);
-              input.value = ayer.toISOString().split('T')[0];
-            }
-            // Limitar máximo a hoy
-            const hoyStr = new Date().toISOString().split('T')[0];
-            input.max = hoyStr;
-            // Disparar el picker nativo
-            try { input.showPicker(); } catch (e) { input.click(); input.focus(); }
-          }
+          this.abrirCalendario();
           return;
         }
 
@@ -117,40 +104,21 @@ const Admin = {
       });
     });
 
-    // Selector de fecha específica
-    const inputFecha = document.getElementById('rango-fecha-input');
-    if (inputFecha) {
-      inputFecha.addEventListener('change', (e) => {
-        const valor = e.target.value;  // 'YYYY-MM-DD'
-        if (!valor) return;
-
-        // Validar que no sea futura
-        const hoy = new Date();
-        hoy.setHours(23, 59, 59, 999);
-        const seleccionada = new Date(valor + 'T00:00:00');
-        if (seleccionada > hoy) {
-          alert('No se puede seleccionar una fecha futura.');
-          return;
-        }
-
-        this.state.rango = 'dia';
-        this.state.fechaEspecifica = valor;
-
-        // Marcar el tab "dia" como activo
-        document.querySelectorAll('.rango-tab').forEach(t => t.classList.remove('rango-active'));
-        const tabDia = document.querySelector('.rango-tab[data-rango="dia"]');
-        if (tabDia) {
-          tabDia.classList.add('rango-active');
-          // Mostrar la fecha en el botón
-          const fmt = `${String(seleccionada.getDate()).padStart(2,'0')}/${String(seleccionada.getMonth()+1).padStart(2,'0')}`;
-          tabDia.textContent = `📅 ${fmt}`;
-        }
-
-        this.calcularRango();
-        this.actualizarRangoInfo();
-        this.cargarTodo();
-      });
-    }
+    // ====== Calendario custom: bind eventos del modal ======
+    const calBackdrop = document.getElementById('cal-modal-backdrop');
+    const calCancel = document.getElementById('cal-cancel');
+    const calToday = document.getElementById('cal-today');
+    const calPrev = document.getElementById('cal-prev');
+    const calNext = document.getElementById('cal-next');
+    if (calBackdrop) calBackdrop.addEventListener('click', () => this.cerrarCalendario());
+    if (calCancel) calCancel.addEventListener('click', () => this.cerrarCalendario());
+    if (calToday) calToday.addEventListener('click', () => {
+      const hoy = new Date();
+      const iso = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}-${String(hoy.getDate()).padStart(2,'0')}`;
+      this.seleccionarDiaCalendario(iso);
+    });
+    if (calPrev) calPrev.addEventListener('click', () => this.navegarMes(-1));
+    if (calNext) calNext.addEventListener('click', () => this.navegarMes(1));
 
     document.getElementById('btn-toggle-alertas').addEventListener('click', () => {
       const lista = document.getElementById('alerta-lista');
@@ -179,6 +147,7 @@ const Admin = {
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         this.cerrarKpiModal();
+        this.cerrarCalendario();
       }
     });
 
@@ -257,6 +226,147 @@ const Admin = {
     } else {
       el.textContent = `Desde ${fmt(desde)}`;
     }
+  },
+
+  // ==================== CALENDARIO CUSTOM ====================
+  // Estado del calendario: qué mes se está viendo y qué fecha está seleccionada.
+  // Se inicializa lazy la primera vez que se abre el modal.
+  _calState: {
+    viewYear: null,
+    viewMonth: null,  // 0-11
+    selected: null,   // 'YYYY-MM-DD' o null
+  },
+
+  abrirCalendario() {
+    const hoy = new Date();
+    let base;
+    if (this.state.fechaEspecifica) {
+      const partes = String(this.state.fechaEspecifica).split('-');
+      base = new Date(parseInt(partes[0],10), parseInt(partes[1],10)-1, parseInt(partes[2],10));
+    } else {
+      base = hoy;
+    }
+    this._calState = {
+      viewYear: base.getFullYear(),
+      viewMonth: base.getMonth(),
+      selected: this.state.fechaEspecifica || null,
+    };
+    this.renderCalendario();
+    const modal = document.getElementById('cal-modal');
+    if (modal) modal.hidden = false;
+  },
+
+  cerrarCalendario() {
+    const modal = document.getElementById('cal-modal');
+    if (modal) modal.hidden = true;
+  },
+
+  navegarMes(delta) {
+    let m = this._calState.viewMonth + delta;
+    let y = this._calState.viewYear;
+    if (m < 0) { m = 11; y--; }
+    else if (m > 11) { m = 0; y++; }
+    this._calState.viewMonth = m;
+    this._calState.viewYear = y;
+    this.renderCalendario();
+  },
+
+  renderCalendario() {
+    const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    const titulo = document.getElementById('cal-title');
+    const cont = document.getElementById('cal-days');
+    if (!titulo || !cont) return;
+
+    const y = this._calState.viewYear;
+    const m = this._calState.viewMonth;
+    titulo.textContent = `${meses[m]} de ${y}`;
+
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const hoyIso = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}-${String(hoy.getDate()).padStart(2,'0')}`;
+
+    cont.innerHTML = '';
+
+    // Día de la semana del primer día del mes (0 = domingo ... 6 = sábado)
+    const primerDia = new Date(y, m, 1);
+    const firstWeekday = primerDia.getDay();
+
+    // Días del mes anterior visibles (en gris) para llenar la primera fila
+    const ultDiaMesAnterior = new Date(y, m, 0).getDate();
+    for (let i = firstWeekday - 1; i >= 0; i--) {
+      const dia = ultDiaMesAnterior - i;
+      const fecha = new Date(y, m - 1, dia);
+      cont.appendChild(this._crearCeldaDia(fecha, true, hoy, hoyIso));
+    }
+
+    // Días del mes actual
+    const diasMes = new Date(y, m + 1, 0).getDate();
+    for (let d = 1; d <= diasMes; d++) {
+      const fecha = new Date(y, m, d);
+      cont.appendChild(this._crearCeldaDia(fecha, false, hoy, hoyIso));
+    }
+
+    // Rellenar última fila con días del mes siguiente
+    const total = cont.children.length;
+    const filas = Math.ceil(total / 7);
+    const objetivo = filas * 7;
+    let dnext = 1;
+    while (cont.children.length < objetivo) {
+      const fecha = new Date(y, m + 1, dnext);
+      cont.appendChild(this._crearCeldaDia(fecha, true, hoy, hoyIso));
+      dnext++;
+    }
+  },
+
+  _crearCeldaDia(fecha, esOtroMes, hoy, hoyIso) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cal-day';
+    btn.textContent = fecha.getDate();
+
+    const iso = `${fecha.getFullYear()}-${String(fecha.getMonth()+1).padStart(2,'0')}-${String(fecha.getDate()).padStart(2,'0')}`;
+    btn.dataset.fecha = iso;
+
+    if (esOtroMes) btn.classList.add('cal-other-month');
+    if (iso === hoyIso) btn.classList.add('cal-today');
+    if (this._calState.selected === iso) btn.classList.add('cal-selected');
+
+    // Días futuros: deshabilitados
+    if (fecha > hoy) {
+      btn.disabled = true;
+    } else {
+      btn.addEventListener('click', () => this.seleccionarDiaCalendario(iso));
+    }
+
+    return btn;
+  },
+
+  seleccionarDiaCalendario(iso) {
+    if (!iso) return;
+
+    // Validar que no sea futura (defensivo)
+    const partes = iso.split('-');
+    const seleccionada = new Date(parseInt(partes[0],10), parseInt(partes[1],10)-1, parseInt(partes[2],10));
+    const hoy = new Date();
+    hoy.setHours(23, 59, 59, 999);
+    if (seleccionada > hoy) return;
+
+    this.state.rango = 'dia';
+    this.state.fechaEspecifica = iso;
+
+    // Marcar el tab "dia" como activo
+    document.querySelectorAll('.rango-tab').forEach(t => t.classList.remove('rango-active'));
+    const tabDia = document.querySelector('.rango-tab[data-rango="dia"]');
+    if (tabDia) {
+      tabDia.classList.add('rango-active');
+      const fmt = `${String(seleccionada.getDate()).padStart(2,'0')}/${String(seleccionada.getMonth()+1).padStart(2,'0')}`;
+      tabDia.textContent = `📅 ${fmt}`;
+    }
+
+    this.cerrarCalendario();
+    this.calcularRango();
+    this.actualizarRangoInfo();
+    this.cargarTodo();
   },
 
   // ==================== CARGA DE DATOS ====================
