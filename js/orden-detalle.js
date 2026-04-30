@@ -2041,6 +2041,31 @@ Hora: ${this.fmtHora()}`;
         .insert(filas);
       if (error) throw error;
 
+      // FIX: si la orden estaba completada, reactivarla automáticamente.
+      // No tiene sentido tener servicios pendientes en una orden "cerrada".
+      // Esto cubre tanto al jefe que olvidó usar "Reactivar orden" como
+      // cualquier camino futuro que termine aquí.
+      const o = this.state.orden;
+      if (o && o.estado === 'completada') {
+        await supabaseClient
+          .from('ordenes')
+          .update({ estado: 'en_progreso', cerrada_en: null })
+          .eq('num_orden', this.state.numOrden);
+
+        // Registrar en el log de auditoría como reactivación implícita
+        try {
+          await supabaseClient
+            .from('reactivaciones_orden')
+            .insert({
+              num_orden: this.state.numOrden,
+              reactivada_por: this.state.profile.id,
+              motivo: 'Reactivación automática al agregar servicio nuevo',
+            });
+        } catch (logErr) {
+          Utils.log('No se pudo guardar log de reactivación implícita:', logErr);
+        }
+      }
+
       this.cerrarModales();
       await this.cargarOrden();
     } catch (err) {
