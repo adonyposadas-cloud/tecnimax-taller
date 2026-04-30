@@ -508,6 +508,16 @@ const Admin = {
       .sort((a, b) => new Date(b.hora_pausa) - new Date(a.hora_pausa))[0] || null;
   },
 
+  // FIX: Devuelve la última pausa registrada del servicio (abierta o cerrada).
+  // Se usa para servicios en estado "pausado" cuando no hay pausa abierta
+  // (caso "Cerrar día": la pausa se cerró pero el estado quedó pausado).
+  // En ese caso el último período activo terminó cuando empezó esa última pausa.
+  ultimaPausaDelServicio(servicioId) {
+    return this.state.pausas
+      .filter(p => p.servicio_orden_id === servicioId && p.hora_pausa)
+      .sort((a, b) => new Date(b.hora_pausa) - new Date(a.hora_pausa))[0] || null;
+  },
+
   // ===== PAUSA REMOTA POR ADMIN/JEFE (motivo: ausente) =====
   async pausarServicioRemoto(servicioId, tecnicoId) {
     // Verificar permisos
@@ -1468,7 +1478,15 @@ const Admin = {
         fin = new Date(s.hora_fin);
       } else if (s.estado === 'pausado') {
         const pausa = this.pausaAbierta(s.id);
-        fin = pausa ? new Date(pausa.hora_pausa) : ahora;
+        if (pausa) {
+          fin = new Date(pausa.hora_pausa);
+        } else {
+          // FIX: pausa cerrada pero servicio sigue en "pausado" (cierre de día).
+          // El último período activo terminó cuando empezó la última pausa,
+          // NO en "ahora" (eso inflaba el tiempo después de medianoche).
+          const ult = this.ultimaPausaDelServicio(s.id);
+          fin = ult ? new Date(ult.hora_pausa) : ini;
+        }
       } else if (s.estado === 'en_progreso') {
         fin = ahora;
       } else {
@@ -1518,7 +1536,14 @@ const Admin = {
         finReal = new Date(s.hora_fin);
       } else if (s.estado === 'pausado') {
         const pausa = this.pausaAbierta(s.id);
-        finReal = pausa ? new Date(pausa.hora_pausa) : ahora;
+        if (pausa) {
+          finReal = new Date(pausa.hora_pausa);
+        } else {
+          // FIX: ver Fase 1. Si no hay pausa abierta pero el servicio sigue
+          // pausado, el período activo terminó en la última hora_pausa.
+          const ult = this.ultimaPausaDelServicio(s.id);
+          finReal = ult ? new Date(ult.hora_pausa) : ini;
+        }
       } else { // en_progreso
         finReal = ahora;
       }
@@ -1644,7 +1669,15 @@ const Admin = {
             const pausa = this.pausaAbierta(s.id);
             const ini = s.hora_inicio ? new Date(s.hora_inicio) : null;
             if (ini) {
-              const finVentana = pausa ? new Date(pausa.hora_pausa) : ahora;
+              let finVentana;
+              if (pausa) {
+                finVentana = new Date(pausa.hora_pausa);
+              } else {
+                // FIX: el detalle expandido también se acota a la última pausa
+                // registrada cuando no hay pausa abierta (cierre de día).
+                const ult = this.ultimaPausaDelServicio(s.id);
+                finVentana = ult ? new Date(ult.hora_pausa) : ini;
+              }
               const pausasPreviasMin = this.pausasPreviasMinutos(s.id, ini, finVentana);
               tiempoReal = Math.max(0, Math.round((finVentana - ini) / 60000) - pausasPreviasMin);
             }
