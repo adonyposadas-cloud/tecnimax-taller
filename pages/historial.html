@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0F2F4A" />
+  <title>Historial de órdenes — TECNIMAX Taller</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="../icons/favicon-32.png" />
+  <link rel="manifest" href="../manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/styles.css" />
+  <link rel="stylesheet" href="../css/admin.css" />
+</head>
+<body class="app-body">
+  <div class="bg-decoration" aria-hidden="true">
+    <div class="bg-gradient"></div>
+    <div class="bg-grid"></div>
+  </div>
+
+  <header class="app-header">
+    <div class="app-brand">
+      <strong>TECNIMAX</strong> · Historial · <span id="user-nombre-header">Administración</span>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: center;">
+      <a id="btn-volver" href="admin.html" class="btn-config" title="Volver al panel">← Volver al panel</a>
+      <button id="btn-logout" class="btn-logout">Salir</button>
+    </div>
+  </header>
+
+  <main class="hist-main">
+
+    <!-- ============= BÚSQUEDA ============= -->
+    <section class="card hist-busqueda">
+      <div class="hist-tipo-chips" role="tablist" aria-label="Tipo de búsqueda">
+        <button class="hist-chip hist-chip-active" data-tipo="placa" role="tab" aria-selected="true">🚗 Placa</button>
+        <button class="hist-chip" data-tipo="orden" role="tab" aria-selected="false">📋 Nº Orden</button>
+        <button class="hist-chip" data-tipo="tecnico" role="tab" aria-selected="false">👤 Técnico</button>
+        <button class="hist-chip" data-tipo="servicio" role="tab" aria-selected="false">🔧 Servicio</button>
+      </div>
+
+      <input
+        type="search"
+        id="hist-search-input"
+        class="field-input hist-search-input"
+        placeholder="Ej: TAXI 7036"
+        autocomplete="off"
+        autofocus
+      />
+
+      <div class="hist-filtros">
+        <label class="hist-filtro-label">
+          <span>📅 Período</span>
+          <select id="hist-fecha-select" class="hist-select">
+            <option value="todas">Todas las fechas</option>
+            <option value="7">Últimos 7 días</option>
+            <option value="30">Últimos 30 días</option>
+            <option value="90">Últimos 90 días</option>
+            <option value="365">Último año</option>
+          </select>
+        </label>
+
+        <label class="hist-filtro-label">
+          <span>📊 Estado</span>
+          <select id="hist-estado-select" class="hist-select">
+            <option value="todos">Todos</option>
+            <option value="completada">Completadas</option>
+            <option value="cancelada">Canceladas</option>
+            <option value="en_progreso">En curso</option>
+            <option value="abierta">Abiertas</option>
+          </select>
+        </label>
+
+        <button type="button" class="hist-btn-limpiar" id="hist-btn-limpiar">Limpiar</button>
+      </div>
+    </section>
+
+    <!-- ============= RESULTADOS ============= -->
+    <section class="card hist-resultados-card">
+      <div class="card-header">
+        <h2 class="section-title-h2">Resultados</h2>
+        <span class="card-badge" id="hist-resultados-count">0</span>
+      </div>
+      <div id="hist-loading" class="empty-state">
+        <p>Cargando órdenes...</p>
+      </div>
+      <div id="hist-ordenes-list" class="hist-ordenes-list" hidden></div>
+      <div id="hist-empty" class="empty-state" hidden>
+        <p>Sin órdenes que coincidan con la búsqueda.</p>
+        <p style="color: var(--text-dim); font-size: 0.85rem; margin-top: 0.5rem;">Probá con otra placa, número o filtro.</p>
+      </div>
+    </section>
+
+  </main>
+
+  <style>
+    /* ===== HISTORIAL — estilo TECNIMAX ===== */
+    .hist-main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: var(--sp-3, 16px);
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-3, 16px);
+    }
+
+    /* Botón volver / config (reutilizado del admin) */
+    .btn-config {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border, rgba(255,255,255,0.10));
+      border-radius: var(--r-sm, 8px);
+      color: var(--text, #e6e9ef);
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn-config:hover {
+      background: rgba(255,255,255,0.12);
+      border-color: var(--text-muted, #8b94a3);
+    }
+
+    /* === Búsqueda === */
+    .hist-busqueda {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .hist-tipo-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .hist-chip {
+      flex: 1 1 auto;
+      min-width: 110px;
+      padding: 10px 14px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      color: var(--text-muted, #8b94a3);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+      text-align: center;
+    }
+    .hist-chip:hover {
+      background: rgba(255,255,255,0.08);
+      color: var(--text, #e6e9ef);
+    }
+    .hist-chip.hist-chip-active {
+      background: linear-gradient(180deg, #2f7fe0, #2563c4);
+      color: #fff;
+      border-color: #2f7fe0;
+      box-shadow: 0 2px 8px rgba(47, 127, 224, 0.3);
+    }
+
+    .hist-search-input {
+      width: 100%;
+      font-size: 1rem;
+      padding: 12px 14px;
+    }
+
+    .hist-filtros {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: flex-end;
+    }
+    .hist-filtro-label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1 1 180px;
+      font-size: 0.75rem;
+      color: var(--text-muted, #8b94a3);
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+    .hist-select {
+      padding: 9px 12px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 8px;
+      color: var(--text, #e6e9ef);
+      font-size: 0.9rem;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .hist-select:focus {
+      outline: none;
+      border-color: #2f7fe0;
+    }
+    .hist-select option {
+      background: #15263d;
+      color: var(--text, #e6e9ef);
+    }
+    .hist-btn-limpiar {
+      padding: 9px 16px;
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      color: var(--text-muted, #8b94a3);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+      align-self: flex-end;
+    }
+    .hist-btn-limpiar:hover {
+      background: rgba(255,255,255,0.06);
+      color: var(--text, #e6e9ef);
+    }
+
+    /* === Lista de órdenes === */
+    .hist-ordenes-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .hist-orden-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      overflow: hidden;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .hist-orden-card:hover {
+      border-color: rgba(255,255,255,0.16);
+      background: rgba(255,255,255,0.05);
+    }
+    .hist-orden-card.expandida {
+      border-color: #2f7fe0;
+      background: rgba(47, 127, 224, 0.06);
+    }
+
+    .hist-orden-header {
+      padding: 14px 16px;
+      cursor: pointer;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+      user-select: none;
+    }
+    .hist-orden-header:hover {
+      background: rgba(255,255,255,0.02);
+    }
+
+    .hist-orden-titulo-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .hist-orden-num {
+      font-family: var(--font-mono, monospace);
+      font-weight: 700;
+      color: var(--text, #e6e9ef);
+      font-size: 0.95rem;
+    }
+    .hist-orden-placa {
+      font-family: var(--font-mono, monospace);
+      background: rgba(255,255,255,0.08);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: var(--text, #e6e9ef);
+    }
+    .hist-orden-vehiculo {
+      color: var(--text-muted, #8b94a3);
+      font-size: 0.85rem;
+    }
+
+    .hist-orden-meta {
+      margin-top: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 0.8rem;
+      color: var(--text-muted, #8b94a3);
+    }
+    .hist-orden-meta strong {
+      color: var(--text, #e6e9ef);
+      font-weight: 600;
+    }
+
+    .hist-estado-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+    .hist-estado-completada {
+      background: rgba(40, 167, 69, 0.18);
+      color: var(--verde-ok, #28a745);
+    }
+    .hist-estado-cancelada {
+      background: rgba(220, 53, 69, 0.20);
+      color: var(--rojo-urgente, #dc3545);
+    }
+    .hist-estado-en_progreso {
+      background: rgba(47, 127, 224, 0.20);
+      color: #4a90e2;
+    }
+    .hist-estado-abierta {
+      background: rgba(255, 193, 7, 0.18);
+      color: var(--amarillo, #ffc107);
+    }
+    .hist-estado-pausada {
+      background: rgba(255, 193, 7, 0.18);
+      color: var(--amarillo, #ffc107);
+    }
+
+    .hist-orden-toggle {
+      color: var(--text-muted, #8b94a3);
+      font-size: 1.1rem;
+      transition: transform 0.2s;
+      padding: 4px 8px;
+    }
+    .hist-orden-card.expandida .hist-orden-toggle {
+      transform: rotate(180deg);
+      color: #2f7fe0;
+    }
+
+    /* === Detalle expandido === */
+    .hist-orden-detalle {
+      padding: 0 16px 16px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      animation: hist-expand 0.2s ease-out;
+    }
+    @keyframes hist-expand {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .hist-detalle-section {
+      margin-top: 14px;
+    }
+    .hist-detalle-titulo {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted, #8b94a3);
+      margin-bottom: 8px;
+    }
+
+    /* Servicios dentro del detalle */
+    .hist-servicio-row {
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      margin-bottom: 6px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: start;
+    }
+    .hist-servicio-info { display: flex; flex-direction: column; gap: 4px; }
+    .hist-servicio-nombre {
+      font-weight: 600;
+      color: var(--text, #e6e9ef);
+      font-size: 0.9rem;
+    }
+    .hist-servicio-tecnico {
+      font-size: 0.78rem;
+      color: var(--text-muted, #8b94a3);
+    }
+    .hist-servicio-tecnico strong {
+      color: var(--text, #e6e9ef);
+      font-weight: 600;
+    }
+    .hist-servicio-tiempos {
+      font-size: 0.75rem;
+      color: var(--text-dim, #5d6878);
+      font-family: var(--font-mono, monospace);
+    }
+    .hist-servicio-tiempo-real {
+      font-family: var(--font-mono, monospace);
+      font-weight: 700;
+      color: var(--text, #e6e9ef);
+      text-align: right;
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
+    .hist-servicio-sospechoso {
+      color: var(--rojo-urgente, #dc3545);
+      font-size: 0.7rem;
+      font-weight: 600;
+    }
+    .hist-servicio-obs {
+      font-size: 0.78rem;
+      color: var(--text-muted, #8b94a3);
+      margin-top: 4px;
+      padding-top: 4px;
+      border-top: 1px dashed rgba(255,255,255,0.06);
+      font-style: italic;
+    }
+    .hist-servicio-cancelado {
+      opacity: 0.65;
+    }
+    .hist-servicio-cancelado .hist-servicio-nombre {
+      text-decoration: line-through;
+    }
+
+    /* Pausas dentro del detalle */
+    .hist-pausa-row {
+      padding: 8px 12px;
+      background: rgba(255, 193, 7, 0.06);
+      border-left: 3px solid var(--amarillo, #ffc107);
+      border-radius: 4px;
+      margin-bottom: 4px;
+      font-size: 0.8rem;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+    }
+    .hist-pausa-motivo {
+      font-weight: 600;
+      color: var(--amarillo, #ffc107);
+      text-transform: capitalize;
+    }
+    .hist-pausa-detalle {
+      color: var(--text-muted, #8b94a3);
+      font-size: 0.78rem;
+    }
+    .hist-pausa-tiempo {
+      font-family: var(--font-mono, monospace);
+      color: var(--text-muted, #8b94a3);
+      font-size: 0.78rem;
+      text-align: right;
+    }
+
+    /* Cancelación */
+    .hist-cancelacion-row {
+      padding: 10px 12px;
+      background: rgba(220, 53, 69, 0.08);
+      border-left: 3px solid var(--rojo-urgente, #dc3545);
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+    .hist-cancelacion-motivo {
+      font-weight: 600;
+      color: var(--rojo-urgente, #dc3545);
+      margin-bottom: 4px;
+    }
+    .hist-cancelacion-meta {
+      font-size: 0.78rem;
+      color: var(--text-muted, #8b94a3);
+    }
+
+    .hist-detalle-vacio {
+      font-size: 0.8rem;
+      color: var(--text-dim, #5d6878);
+      font-style: italic;
+      padding: 4px 0;
+    }
+
+    /* Resumen totales */
+    .hist-orden-resumen-totales {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.04);
+      border-radius: 8px;
+      font-size: 0.8rem;
+    }
+    .hist-resumen-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .hist-resumen-label {
+      color: var(--text-muted, #8b94a3);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      font-weight: 600;
+    }
+    .hist-resumen-value {
+      color: var(--text, #e6e9ef);
+      font-family: var(--font-mono, monospace);
+      font-weight: 700;
+      font-size: 0.95rem;
+    }
+
+    /* Mobile */
+    @media (max-width: 600px) {
+      .hist-main { padding: 10px; }
+      .hist-tipo-chips { gap: 6px; }
+      .hist-chip { min-width: 0; padding: 8px 10px; font-size: 0.78rem; }
+      .hist-orden-header { padding: 12px 14px; }
+      .hist-orden-meta { gap: 8px; font-size: 0.75rem; }
+      .hist-orden-detalle { padding: 0 14px 14px; }
+      .hist-servicio-row { grid-template-columns: 1fr; }
+      .hist-servicio-tiempo-real { text-align: left; }
+    }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/config.js"></script>
+  <script src="../js/supabase-client.js"></script>
+  <script src="../js/utils.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/historial.js"></script>
+</body>
+</html>
