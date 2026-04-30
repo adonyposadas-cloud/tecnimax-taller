@@ -67,7 +67,16 @@
           <button id="btn-cancelar-orden" class="btn-jefe-action btn-jefe-danger">
             <span>✗</span> Cancelar orden
           </button>
+          <button id="btn-marcar-entregada" class="btn-jefe-action" hidden>
+            <span>🚗</span> Marcar entregada
+          </button>
         </div>
+      </section>
+
+      <!-- Info de entrega (cuando ya fue recogida por motorista) -->
+      <section id="info-entrega" class="panel-jefe" hidden>
+        <div class="panel-jefe-label" style="color: var(--success, #4ade80);">✓ ENTREGADA AL MOTORISTA</div>
+        <div id="info-entrega-detalle" style="padding: 4px 12px 8px; font-size: 0.95rem;">—</div>
       </section>
 
       <!-- Tarjeta principal -->
@@ -280,6 +289,31 @@
       <footer class="modal-footer">
         <button type="button" class="btn-secondary" id="btn-cerrar-cancelar">No, mantener</button>
         <button type="button" class="btn-stop" id="btn-confirmar-cancelar">Sí, cancelar orden</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL MARCAR ENTREGADA ============= -->
+  <div id="modal-entregar" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Marcar como entregada</h2>
+      </header>
+      <div class="modal-body">
+        <p class="modal-desc">
+          Registra que el motorista vino a recoger la unidad.
+        </p>
+        <div class="field">
+          <label for="entregar-motorista">Nombre del motorista <span class="required">*</span></label>
+          <input id="entregar-motorista" type="text" class="field-input"
+            placeholder="Ej: Juan Pérez" maxlength="80" autocomplete="off" />
+        </div>
+        <div id="entregar-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cerrar-entregar">Cancelar</button>
+        <button type="button" class="btn-primary" id="btn-confirmar-entregar">Confirmar entrega</button>
       </footer>
     </div>
   </div>
