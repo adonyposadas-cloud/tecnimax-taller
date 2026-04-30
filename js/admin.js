@@ -1609,11 +1609,27 @@ const Admin = {
     // ========================================================================
     // FASE 3: Calcular Tiempo Activo y Aprovechamiento
     // T. Activo = ventana del técnico (ya acotada al rango) − pausas en esa ventana
+    //
+    // FIX: La ventana se ACOTA al rango del filtro y las pausas también.
+    // Esto evita que pausas largas de noches anteriores (ej: pausó ayer a las
+    // 16:00 y reanudó hoy a las 14:00 = 22h de pausa registrada) coman todo
+    // el T. Activo del día actual y dejen el indicador en 0.
     // ========================================================================
     Object.values(stats).forEach(st => {
       if (st.primerInicio && st.ultimoFin) {
-        const ventanaMin = Math.max(0, Math.round((st.ultimoFin - st.primerInicio) / 60000));
-        const pausasMin = this.calcularPausasTecnicoEnRango(st.id, st.primerInicio, st.ultimoFin);
+        // Acotar la ventana del técnico al rango del filtro
+        const ventanaIni = st.primerInicio > rangoIni ? st.primerInicio : rangoIni;
+        const ventanaFin = st.ultimoFin < rangoFin ? st.ultimoFin : rangoFin;
+
+        if (ventanaFin <= ventanaIni) {
+          st.tiempoActivo = 0;
+          st.aprovechamiento = null;
+          return;
+        }
+
+        const ventanaMin = Math.max(0, Math.round((ventanaFin - ventanaIni) / 60000));
+        // Pausas también se acotan a la misma ventana ya recortada
+        const pausasMin = this.calcularPausasTecnicoEnRango(st.id, ventanaIni, ventanaFin);
         st.tiempoActivo = Math.max(0, ventanaMin - pausasMin);
 
         if (st.tiempoActivo > 0) {
