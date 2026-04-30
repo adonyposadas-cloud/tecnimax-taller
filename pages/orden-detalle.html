@@ -70,6 +70,9 @@
           <button id="btn-marcar-entregada" class="btn-jefe-action" hidden>
             <span>🚗</span> Marcar entregada
           </button>
+          <button id="btn-reactivar-orden" class="btn-jefe-action" hidden>
+            <span>↻</span> Reactivar orden
+          </button>
         </div>
       </section>
 
@@ -314,6 +317,35 @@
       <footer class="modal-footer">
         <button type="button" class="btn-secondary" id="btn-cerrar-entregar">Cancelar</button>
         <button type="button" class="btn-primary" id="btn-confirmar-entregar">Confirmar entrega</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL REACTIVAR ORDEN ============= -->
+  <div id="modal-reactivar" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">↻ Reactivar orden</h2>
+      </header>
+      <div class="modal-body">
+        <p class="modal-desc">
+          La orden volverá a estado <strong>en proceso</strong>. Después podrás
+          agregar nuevos servicios desde el botón <em>"+ Servicio nuevo"</em>.
+        </p>
+        <div class="modal-warn" style="margin-bottom: 12px;">
+          ⚠️ Solo se puede reactivar mientras el motorista no haya recogido la unidad.
+        </div>
+        <div class="field">
+          <label for="reactivar-motivo">Motivo (opcional)</label>
+          <input id="reactivar-motivo" type="text" class="field-input"
+            placeholder="Ej: Cliente pidió revisar algo más" maxlength="200" autocomplete="off" />
+        </div>
+        <div id="reactivar-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cerrar-reactivar">No, mantener</button>
+        <button type="button" class="btn-primary" id="btn-confirmar-reactivar">Sí, reactivar</button>
       </footer>
     </div>
   </div>
