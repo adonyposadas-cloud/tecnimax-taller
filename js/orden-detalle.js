@@ -286,7 +286,7 @@ Hora: ${this.fmtHora()}`;
         .from('ordenes')
         .select(`
           num_orden, placa, prioridad, estado, motivo, problema, km_ingreso,
-          creada_en, cerrada_en, creada_por,
+          creada_en, cerrada_en, creada_por, entregada_en, motorista_nombre,
           vehiculos ( marca, modelo, anio, km_gps_actual ),
           servicios_orden ( id, servicio_id, estado, tecnico_id, hora_inicio, hora_fin,
                             tiempo_real_min, tiempo_asignado_min, sospechoso,
@@ -622,23 +622,67 @@ Hora: ${this.fmtHora()}`;
   renderPanelJefe() {
     const rol = this.state.profile.rol;
     const panel = document.getElementById('panel-jefe');
+    const btnPrio = document.getElementById('btn-cambiar-prioridad');
+    const btnAgregarSrv = document.getElementById('btn-agregar-servicio-jefe');
+    const btnCancelar = document.getElementById('btn-cancelar-orden');
+    const btnEntregar = document.getElementById('btn-marcar-entregada');
+    const infoEntrega = document.getElementById('info-entrega');
+    const infoEntregaDet = document.getElementById('info-entrega-detalle');
 
-    if (rol !== 'jefe_pista' && rol !== 'admin') {
+    const o = this.state.orden;
+    if (!o) {
       panel.hidden = true;
+      if (infoEntrega) infoEntrega.hidden = true;
       return;
     }
 
-    const o = this.state.orden;
-    if (!o || o.estado === 'completada' || o.estado === 'cancelada') {
+    // 1) ¿Mostrar info de "ya entregada"?
+    if (infoEntrega) {
+      if (o.entregada_en) {
+        const fecha = this.formatearFecha
+          ? this.formatearFecha(o.entregada_en)
+          : new Date(o.entregada_en).toLocaleString('es-HN');
+        const motorista = o.motorista_nombre
+          ? Utils.escapeHtml(o.motorista_nombre)
+          : '<em>Motorista sin nombre registrado</em>';
+        infoEntregaDet.innerHTML = `Recogida por <strong>${motorista}</strong><br><small style="color: var(--text-muted);">${fecha}</small>`;
+        infoEntrega.hidden = false;
+      } else {
+        infoEntrega.hidden = true;
+      }
+    }
+
+    // 2) ¿Mostrar el panel de acciones?
+    // - Si la orden está cancelada: nunca
+    // - Si la orden está completada y NO entregada: SÍ (para mostrar Marcar entregada,
+    //   accesible a CUALQUIER rol)
+    // - Si la orden está completada y YA entregada: no
+    // - Si la orden está abierta o en_progreso: solo jefe/admin (comportamiento previo)
+    const completadaPendienteEntrega = o.estado === 'completada' && !o.entregada_en;
+    const editableJefeAdmin = (o.estado === 'abierta' || o.estado === 'en_progreso')
+                              && (rol === 'jefe_pista' || rol === 'admin');
+
+    if (!completadaPendienteEntrega && !editableJefeAdmin) {
       panel.hidden = true;
       return;
     }
 
     panel.hidden = false;
 
-    // Mostrar "Agregar servicio" solo si la orden está abierta (no en progreso)
-    const btnAgregarSrv = document.getElementById('btn-agregar-servicio-jefe');
-    btnAgregarSrv.hidden = o.estado !== 'abierta';
+    // 3) Configurar visibilidad de cada botón según el escenario
+    if (completadaPendienteEntrega) {
+      // Solo botón de Marcar entregada (cualquier rol puede pulsarlo)
+      if (btnPrio) btnPrio.hidden = true;
+      if (btnAgregarSrv) btnAgregarSrv.hidden = true;
+      if (btnCancelar) btnCancelar.hidden = true;
+      if (btnEntregar) btnEntregar.hidden = false;
+    } else {
+      // Modo edición jefe/admin (orden en curso)
+      if (btnPrio) btnPrio.hidden = false;
+      if (btnAgregarSrv) btnAgregarSrv.hidden = (o.estado !== 'abierta');
+      if (btnCancelar) btnCancelar.hidden = false;
+      if (btnEntregar) btnEntregar.hidden = true;
+    }
   },
 
   renderServicios() {
@@ -1532,6 +1576,66 @@ Hora: ${this.fmtHora()}`;
     }
   },
 
+  // ----- MARCAR ENTREGADA AL MOTORISTA -----
+  abrirModalEntregar() {
+    const input = document.getElementById('entregar-motorista');
+    if (input) input.value = '';
+    const errEl = document.getElementById('entregar-error');
+    if (errEl) errEl.hidden = true;
+    document.getElementById('modal-entregar').hidden = false;
+    // Foco automático al input para escribir el nombre rápido
+    setTimeout(() => { if (input) input.focus(); }, 50);
+  },
+
+  async confirmarEntregar() {
+    const nombreInput = document.getElementById('entregar-motorista');
+    const nombre = (nombreInput?.value || '').trim();
+    if (!nombre) {
+      this.errorEnModal('entregar-error', 'Debes ingresar el nombre del motorista.');
+      return;
+    }
+    if (nombre.length < 3) {
+      this.errorEnModal('entregar-error', 'El nombre es demasiado corto.');
+      return;
+    }
+
+    const btn = document.getElementById('btn-confirmar-entregar');
+    btn.disabled = true;
+    btn.textContent = 'Guardando...';
+
+    try {
+      // Validación de seguridad: solo se entregan órdenes ya completadas y no entregadas
+      const o = this.state.orden;
+      if (!o || o.estado !== 'completada') {
+        this.errorEnModal('entregar-error', 'La orden no está completada.');
+        return;
+      }
+      if (o.entregada_en) {
+        this.errorEnModal('entregar-error', 'Esta orden ya fue marcada como entregada.');
+        return;
+      }
+
+      const ahora = new Date().toISOString();
+      const { error } = await supabaseClient
+        .from('ordenes')
+        .update({
+          entregada_en: ahora,
+          motorista_nombre: nombre,
+        })
+        .eq('num_orden', this.state.numOrden);
+      if (error) throw error;
+
+      this.cerrarModales();
+      await this.cargarOrden();
+    } catch (err) {
+      Utils.log('Error marcando entrega:', err);
+      this.errorEnModal('entregar-error', err.message || 'No se pudo registrar la entrega.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Confirmar entrega';
+    }
+  },
+
   // ----- REASIGNAR TÉCNICO -----
   async abrirModalReasignar(sid) {
     const s = this.state.servicios.find(x => x.id === sid);
@@ -1926,6 +2030,21 @@ Hora: ${this.fmtHora()}`;
     const btnAgregarSrv = document.getElementById('btn-agregar-servicio-jefe');
     if (btnAgregarSrv) btnAgregarSrv.addEventListener('click', () => this.abrirModalAgregarJefe());
 
+    // ----- Acción Marcar entregada (cualquier rol) -----
+    const btnEntregar = document.getElementById('btn-marcar-entregada');
+    if (btnEntregar) btnEntregar.addEventListener('click', () => this.abrirModalEntregar());
+
+    // Modal Entregar
+    const btnCerrarEnt = document.getElementById('btn-cerrar-entregar');
+    if (btnCerrarEnt) btnCerrarEnt.addEventListener('click', () => this.cerrarModales());
+    const btnConfEnt = document.getElementById('btn-confirmar-entregar');
+    if (btnConfEnt) btnConfEnt.addEventListener('click', () => this.confirmarEntregar());
+    // Enter en el input dispara confirmar
+    const inputEnt = document.getElementById('entregar-motorista');
+    if (inputEnt) inputEnt.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); this.confirmarEntregar(); }
+    });
+
     // Modal Prioridad
     document.querySelectorAll('.prio-option').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1986,7 +2105,8 @@ Hora: ${this.fmtHora()}`;
 
   cerrarModales() {
     ['modal-empezar', 'modal-pausar', 'modal-terminar', 'modal-agregar',
-     'modal-prioridad', 'modal-cancelar-orden', 'modal-reasignar', 'modal-agregar-jefe'].forEach(id => {
+     'modal-prioridad', 'modal-cancelar-orden', 'modal-reasignar', 'modal-agregar-jefe',
+     'modal-entregar'].forEach(id => {
       const m = document.getElementById(id);
       if (m) m.hidden = true;
     });
