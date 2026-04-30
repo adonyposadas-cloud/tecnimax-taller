@@ -18,8 +18,19 @@ const Configuracion = {
     intervalos: [],
     grupos: [],
     busquedaCatalogo: '',
-    seccionExpandida: 'catalogo',  // catalogo | intervalos | grupos
+    seccionExpandida: 'catalogo',  // catalogo | intervalos | grupos | kmgps
     editando: null,  // { tipo, id }
+
+    // ===== Módulo Importar KM (GPS) =====
+    kmgps: {
+      archivo: null,           // File object
+      filasParseadas: [],      // [{ placa, fecha, metros, km, estado, error }]
+      filasValidas: [],        // subset listo para upsert
+      fechaCsv: null,          // 'YYYY-MM-DD' detectada
+      placasExistentes: new Set(),  // placas ya en tabla 'vehiculos'
+      registrosExistentesEnFecha: 0, // cuántos ya hay en gps_km para esa fecha
+      historialImports: [],    // últimas N fechas con conteos
+    },
   },
 
   // ==================== INIT ====================
@@ -66,10 +77,12 @@ const Configuracion = {
         this.cargarCatalogo(),
         this.cargarIntervalos(),
         this.cargarGrupos(),
+        this.cargarHistorialKmGps(),  // tolerante a fallos (si la tabla aún no existe)
       ]);
       this.renderCatalogo();
       this.renderIntervalos();
       this.renderGrupos();
+      this.renderHistorialKmGps();
     } catch (err) {
       Utils.log('Error cargando configuración:', err);
       alert('Error cargando datos: ' + (err.message || ''));
@@ -552,6 +565,22 @@ const Configuracion = {
     document.getElementById('btn-confirmar-intervalo').addEventListener('click', () => this.guardarIntervalo());
     document.getElementById('btn-confirmar-grupo').addEventListener('click', () => this.guardarGrupo());
 
+    // ============= MÓDULO IMPORTAR KM (GPS) =============
+    const btnSeleccionar = document.getElementById('btn-kmgps-seleccionar');
+    const inputFile = document.getElementById('kmgps-file-input');
+    const btnCancelar = document.getElementById('btn-kmgps-cancelar');
+    const btnConfirmar = document.getElementById('btn-kmgps-confirmar');
+
+    if (btnSeleccionar && inputFile) {
+      btnSeleccionar.addEventListener('click', () => inputFile.click());
+      inputFile.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (file) this.kmgpsArchivoSeleccionado(file);
+      });
+    }
+    if (btnCancelar) btnCancelar.addEventListener('click', () => this.kmgpsCancelar());
+    if (btnConfirmar) btnConfirmar.addEventListener('click', () => this.kmgpsConfirmarImportacion());
+
     // Click en backdrops cierra modales
     document.querySelectorAll('.modal-backdrop').forEach(b => {
       b.addEventListener('click', () => this.cerrarModales());
@@ -578,6 +607,481 @@ const Configuracion = {
     document.getElementById('modal-intervalo').hidden = true;
     document.getElementById('modal-grupo').hidden = true;
     this.state.editando = null;
+  },
+
+  // ============================================================
+  // ============= MÓDULO: IMPORTAR KM (GPS) ====================
+  // ============================================================
+  // Sube un .csv del RPA con columnas Fecha_procesado, Vehiculo, kilometraje
+  // (kilometraje = metros recorridos en el día). Hace upsert a tabla gps_km
+  // con UNIQUE(placa, fecha) — re-subir el mismo día reemplaza.
+
+  // ----- Cargar el historial de imports (últimas 30 fechas distintas) -----
+  async cargarHistorialKmGps() {
+    try {
+      const { data, error } = await supabaseClient
+        .from('gps_km')
+        .select('fecha, subido_en, subido_por')
+        .order('fecha', { ascending: false })
+        .limit(2000);  // suficiente para reconstruir histórico
+
+      if (error) {
+        // Si la tabla no existe aún, no romper la pantalla.
+        Utils.log('cargarHistorialKmGps: tabla no disponible o error:', error.message);
+        this.state.kmgps.historialImports = [];
+        return;
+      }
+
+      // Agrupar por fecha
+      const porFecha = new Map();
+      (data || []).forEach(r => {
+        if (!porFecha.has(r.fecha)) {
+          porFecha.set(r.fecha, { fecha: r.fecha, count: 0, ultimoSubido: null });
+        }
+        const g = porFecha.get(r.fecha);
+        g.count += 1;
+        const subTs = r.subido_en ? new Date(r.subido_en).getTime() : 0;
+        if (!g.ultimoSubido || subTs > new Date(g.ultimoSubido).getTime()) {
+          g.ultimoSubido = r.subido_en;
+        }
+      });
+
+      const lista = Array.from(porFecha.values())
+        .sort((a, b) => b.fecha.localeCompare(a.fecha))
+        .slice(0, 10);
+
+      this.state.kmgps.historialImports = lista;
+    } catch (err) {
+      Utils.log('cargarHistorialKmGps error:', err);
+      this.state.kmgps.historialImports = [];
+    }
+  },
+
+  renderHistorialKmGps() {
+    const cont = document.getElementById('kmgps-historial-list');
+    const badgeUltima = document.getElementById('kmgps-ultima-fecha');
+    const lista = this.state.kmgps.historialImports || [];
+
+    if (lista.length === 0) {
+      if (cont) cont.innerHTML = '<p class="empty-state" style="padding: 8px 0; font-size: 0.85rem;">Aún no hay imports.</p>';
+      if (badgeUltima) badgeUltima.textContent = '—';
+      return;
+    }
+
+    if (badgeUltima) badgeUltima.textContent = `Último: ${this._fmtFecha(lista[0].fecha)}`;
+    if (!cont) return;
+
+    cont.innerHTML = lista.map(r => `
+      <div class="kmgps-historial-row">
+        <div class="kmgps-historial-fecha">${this._fmtFecha(r.fecha)}</div>
+        <div class="kmgps-historial-meta">${r.ultimoSubido ? 'Subido ' + this._fmtFechaHora(r.ultimoSubido) : ''}</div>
+        <div class="kmgps-historial-count">${r.count} veh.</div>
+      </div>
+    `).join('');
+  },
+
+  // ----- Archivo seleccionado: leer y parsear -----
+  kmgpsArchivoSeleccionado(file) {
+    this.state.kmgps.archivo = file;
+    document.getElementById('kmgps-archivo-nombre').textContent = file.name;
+
+    // Reset UI
+    document.getElementById('kmgps-resultado').hidden = true;
+    document.getElementById('kmgps-progress').hidden = true;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const texto = String(e.target.result || '');
+        this.kmgpsParsearCsv(texto);
+      } catch (err) {
+        Utils.log('Error parseando CSV:', err);
+        alert('Error leyendo el CSV: ' + (err.message || ''));
+      }
+    };
+    reader.onerror = () => alert('No se pudo leer el archivo.');
+    reader.readAsText(file, 'utf-8');
+  },
+
+  kmgpsCancelar() {
+    this.state.kmgps.archivo = null;
+    this.state.kmgps.filasParseadas = [];
+    this.state.kmgps.filasValidas = [];
+    this.state.kmgps.fechaCsv = null;
+    document.getElementById('kmgps-file-input').value = '';
+    document.getElementById('kmgps-archivo-nombre').textContent = '';
+    document.getElementById('kmgps-preview').hidden = true;
+    document.getElementById('kmgps-resultado').hidden = true;
+    document.getElementById('kmgps-progress').hidden = true;
+  },
+
+  // ----- Parser CSV (sin librerías) -----
+  // Espera columnas: Fecha_procesado, Vehiculo, kilometraje
+  // Tolera \r\n, \n, BOM al inicio, líneas vacías.
+  async kmgpsParsearCsv(texto) {
+    // Quitar BOM si existe
+    if (texto.charCodeAt(0) === 0xFEFF) texto = texto.slice(1);
+
+    const lineas = texto.split(/\r?\n/).filter(l => l.trim() !== '');
+    if (lineas.length < 2) {
+      alert('El archivo parece vacío o no tiene datos.');
+      return;
+    }
+
+    // Header
+    const header = this._csvSplitLine(lineas[0]).map(h => h.trim().toLowerCase());
+    const idxFecha   = header.findIndex(h => h === 'fecha_procesado' || h === 'fecha');
+    const idxVehic   = header.findIndex(h => h === 'vehiculo' || h === 'vehículo' || h === 'placa');
+    const idxKm      = header.findIndex(h => h === 'kilometraje' || h === 'metros' || h === 'km');
+
+    if (idxFecha < 0 || idxVehic < 0 || idxKm < 0) {
+      alert('El CSV no tiene las columnas esperadas: Fecha_procesado, Vehiculo, kilometraje.\nDetectadas: ' + header.join(', '));
+      return;
+    }
+
+    // Cargar set de placas existentes en tabla 'vehiculos' para marcar las nuevas
+    const placasExistentes = await this._cargarPlacasExistentes();
+    this.state.kmgps.placasExistentes = placasExistentes;
+
+    // Parsear filas
+    const filas = [];
+    let fechaDetectada = null;
+    for (let i = 1; i < lineas.length; i++) {
+      const cols = this._csvSplitLine(lineas[i]);
+      if (cols.length === 0) continue;
+
+      const fechaRaw  = (cols[idxFecha] || '').trim();
+      const vehicRaw  = (cols[idxVehic] || '').trim();
+      const kmRaw     = (cols[idxKm]    || '').trim();
+
+      const fecha = this._normalizarFecha(fechaRaw);
+      const placa = this._normalizarPlaca(vehicRaw);
+      const metros = this._parsearMetros(kmRaw);
+
+      const errores = [];
+      if (!fecha) errores.push('fecha inválida');
+      if (!placa) errores.push('placa vacía');
+      if (metros === null) errores.push('km no numérico');
+      if (metros !== null && metros < 0) errores.push('km negativo');
+
+      if (fecha && !fechaDetectada) fechaDetectada = fecha;
+
+      const km = metros !== null ? +(metros / 1000).toFixed(3) : null;
+
+      let estado = 'ok';
+      if (errores.length > 0) estado = 'error';
+      // < 2 km en un día de trabajo: claramente no se movió (incluye el "1001"
+      // del RPA y otros casos similares).
+      else if (metros !== null && metros < 2000) estado = 'sinmov';
+      else if (placa && !placasExistentes.has(placa)) estado = 'nueva';
+
+      filas.push({
+        linea: i + 1,
+        fechaRaw, vehicRaw, kmRaw,
+        fecha, placa, metros, km,
+        estado,           // 'ok' | 'error' | 'sinmov' | 'nueva'
+        errores,
+      });
+    }
+
+    this.state.kmgps.filasParseadas = filas;
+    this.state.kmgps.fechaCsv = fechaDetectada;
+    this.state.kmgps.filasValidas = filas.filter(f => f.estado !== 'error');
+
+    // Verificar si ya hay registros para esa fecha
+    let existentes = 0;
+    if (fechaDetectada) {
+      try {
+        const { count, error } = await supabaseClient
+          .from('gps_km')
+          .select('*', { count: 'exact', head: true })
+          .eq('fecha', fechaDetectada);
+        if (!error) existentes = count || 0;
+      } catch (e) {
+        Utils.log('No se pudo verificar registros existentes:', e);
+      }
+    }
+    this.state.kmgps.registrosExistentesEnFecha = existentes;
+
+    this.kmgpsRenderPreview();
+  },
+
+  _csvSplitLine(linea) {
+    // Parser CSV simple: maneja comillas y comas dentro de comillas.
+    const result = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < linea.length; i++) {
+      const c = linea[i];
+      if (c === '"') {
+        if (inQuotes && linea[i + 1] === '"') { cur += '"'; i++; }
+        else inQuotes = !inQuotes;
+      } else if (c === ',' && !inQuotes) {
+        result.push(cur);
+        cur = '';
+      } else {
+        cur += c;
+      }
+    }
+    result.push(cur);
+    return result;
+  },
+
+  _normalizarFecha(str) {
+    if (!str) return null;
+    // Acepta YYYY-MM-DD, YYYY/MM/DD, DD/MM/YYYY, DD-MM-YYYY
+    const s = String(str).trim();
+    let m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+    if (m) return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+    m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);
+    if (m) return `${m[3]}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
+    return null;
+  },
+
+  _normalizarPlaca(str) {
+    if (!str) return null;
+    // Comprimir múltiples espacios a uno, trim, mayúsculas.
+    return String(str).trim().toUpperCase().replace(/\s+/g, ' ');
+  },
+
+  _parsearMetros(str) {
+    if (str === null || str === undefined) return null;
+    let s = String(str).trim();
+    if (s === '') return null;
+    // El RPA usa el punto como separador de miles: "129.066" = 129066 metros.
+    // Quitamos TODOS los puntos. Si por error usaran coma como decimal, también la quitamos.
+    s = s.replace(/\./g, '').replace(/,/g, '');
+    if (!/^\d+$/.test(s)) return null;
+    const n = parseInt(s, 10);
+    return isNaN(n) ? null : n;
+  },
+
+  async _cargarPlacasExistentes() {
+    try {
+      // Tabla 'vehiculos' usa la placa como PK o como columna única, según veo en
+      // tu modelo. Cargamos todas las placas para marcar las "nuevas" del CSV.
+      const set = new Set();
+      const { data, error } = await supabaseClient
+        .from('vehiculos')
+        .select('placa');
+      if (!error && Array.isArray(data)) {
+        data.forEach(v => v.placa && set.add(this._normalizarPlaca(v.placa)));
+      } else if (error) {
+        Utils.log('No se pudo leer tabla vehiculos:', error.message);
+      }
+      return set;
+    } catch (e) {
+      Utils.log('Error cargando placas existentes:', e);
+      return new Set();
+    }
+  },
+
+  // ----- Render preview -----
+  kmgpsRenderPreview() {
+    const filas = this.state.kmgps.filasParseadas;
+    const validas = this.state.kmgps.filasValidas;
+    const errores = filas.filter(f => f.estado === 'error');
+    const sinMov = filas.filter(f => f.estado === 'sinmov');
+    const nuevas = filas.filter(f => f.estado === 'nueva');
+    const fecha = this.state.kmgps.fechaCsv;
+
+    document.getElementById('kmgps-preview').hidden = false;
+
+    document.getElementById('kmgps-stat-fecha').textContent   = fecha ? this._fmtFecha(fecha) : '—';
+    document.getElementById('kmgps-stat-filas').textContent   = filas.length;
+    document.getElementById('kmgps-stat-validas').textContent = validas.length;
+    document.getElementById('kmgps-stat-errores').textContent = errores.length;
+    document.getElementById('kmgps-stat-sinmov').textContent  = sinMov.length;
+    document.getElementById('kmgps-stat-nuevas').textContent  = nuevas.length;
+
+    // Aviso de fecha existente
+    const aviso = document.getElementById('kmgps-aviso-existente');
+    const exist = this.state.kmgps.registrosExistentesEnFecha;
+    if (exist > 0) {
+      document.getElementById('kmgps-existente-count').textContent = exist;
+      aviso.hidden = false;
+    } else {
+      aviso.hidden = true;
+    }
+
+    // Tabla preview (primeras 10 filas, priorizando errores si hay)
+    const filasMostrar = errores.length > 0
+      ? [...errores.slice(0, 5), ...validas.slice(0, 10 - Math.min(5, errores.length))]
+      : filas.slice(0, 10);
+
+    const tbody = document.getElementById('kmgps-tabla-body');
+    tbody.innerHTML = filasMostrar.map(f => {
+      const rowCls = f.estado === 'error' ? 'kmgps-row-error'
+                  : f.estado === 'sinmov' ? 'kmgps-row-sinmov'
+                  : f.estado === 'nueva'  ? 'kmgps-row-nueva' : '';
+      const badge = this._kmgpsBadge(f);
+      return `
+        <tr class="${rowCls}">
+          <td class="kmgps-td-placa">${Utils.escapeHtml(f.placa || f.vehicRaw || '—')}</td>
+          <td>${Utils.escapeHtml(f.fecha || f.fechaRaw || '—')}</td>
+          <td class="kmgps-td-num">${f.metros !== null ? f.metros.toLocaleString() : Utils.escapeHtml(f.kmRaw)}</td>
+          <td class="kmgps-td-num">${f.km !== null ? f.km.toFixed(3) : '—'}</td>
+          <td>${badge}</td>
+        </tr>
+      `;
+    }).join('');
+
+    // Lista de errores si hay
+    const errCont = document.getElementById('kmgps-errores-lista');
+    if (errores.length > 0) {
+      errCont.hidden = false;
+      errCont.innerHTML = `
+        <strong>${errores.length} fila(s) con error</strong> (no se importarán):
+        ${errores.slice(0, 50).map(e => `
+          <div class="kmgps-error-item">
+            Línea ${e.linea}: ${Utils.escapeHtml(e.errores.join(', '))} —
+            <code>${Utils.escapeHtml(e.fechaRaw)} | ${Utils.escapeHtml(e.vehicRaw)} | ${Utils.escapeHtml(e.kmRaw)}</code>
+          </div>
+        `).join('')}
+        ${errores.length > 50 ? `<div class="kmgps-error-item">... y ${errores.length - 50} más</div>` : ''}
+      `;
+    } else {
+      errCont.hidden = true;
+    }
+
+    // Habilitar/deshabilitar botón confirmar
+    const btnConfirmar = document.getElementById('btn-kmgps-confirmar');
+    if (validas.length === 0) {
+      btnConfirmar.disabled = true;
+      btnConfirmar.textContent = '✕ No hay filas válidas';
+    } else {
+      btnConfirmar.disabled = false;
+      btnConfirmar.textContent = `✓ Importar ${validas.length} registro${validas.length === 1 ? '' : 's'}`;
+    }
+  },
+
+  _kmgpsBadge(f) {
+    if (f.estado === 'error')  return '<span class="kmgps-badge kmgps-badge-error">Error</span>';
+    if (f.estado === 'sinmov') return '<span class="kmgps-badge kmgps-badge-warn">Sin moverse</span>';
+    if (f.estado === 'nueva')  return '<span class="kmgps-badge kmgps-badge-info">Placa nueva</span>';
+    return '<span class="kmgps-badge kmgps-badge-ok">OK</span>';
+  },
+
+  // ----- Confirmar e insertar (upsert por placa+fecha) -----
+  async kmgpsConfirmarImportacion() {
+    const validas = this.state.kmgps.filasValidas;
+    if (!validas || validas.length === 0) return;
+
+    const btnConfirmar = document.getElementById('btn-kmgps-confirmar');
+    const btnCancelar  = document.getElementById('btn-kmgps-cancelar');
+    const progress     = document.getElementById('kmgps-progress');
+    const progressFill = document.getElementById('kmgps-progress-fill');
+    const progressText = document.getElementById('kmgps-progress-text');
+    const resultado    = document.getElementById('kmgps-resultado');
+
+    btnConfirmar.disabled = true;
+    btnCancelar.disabled  = true;
+    progress.hidden = false;
+    resultado.hidden = true;
+    progressFill.style.width = '0%';
+    progressText.textContent = `Importando 0 / ${validas.length}...`;
+
+    // Construir registros para upsert. Procesar en chunks de 200.
+    const subidoPor = this.state.profile && this.state.profile.id ? this.state.profile.id : null;
+    const registros = validas.map(f => ({
+      placa: f.placa,
+      fecha: f.fecha,
+      metros: f.metros,
+      km: f.km,
+      fuente: 'rpa_csv',
+      subido_por: subidoPor,
+    }));
+
+    const CHUNK = 200;
+    let insertados = 0;
+    let fallos = 0;
+    const erroresMsg = [];
+
+    try {
+      for (let i = 0; i < registros.length; i += CHUNK) {
+        const slice = registros.slice(i, i + CHUNK);
+        const { error } = await supabaseClient
+          .from('gps_km')
+          .upsert(slice, { onConflict: 'placa,fecha' });
+
+        if (error) {
+          fallos += slice.length;
+          erroresMsg.push(error.message || 'error desconocido');
+          Utils.log('Error en chunk:', error);
+        } else {
+          insertados += slice.length;
+        }
+
+        const done = Math.min(i + CHUNK, registros.length);
+        progressFill.style.width = `${Math.round((done / registros.length) * 100)}%`;
+        progressText.textContent = `Importando ${done} / ${registros.length}...`;
+      }
+
+      // Resultado final
+      progress.hidden = true;
+      resultado.hidden = false;
+
+      if (fallos === 0) {
+        resultado.className = 'kmgps-resultado kmgps-resultado-ok';
+        resultado.innerHTML = `
+          ✅ <strong>Importación exitosa.</strong><br>
+          ${insertados} registro${insertados === 1 ? '' : 's'} guardado${insertados === 1 ? '' : 's'} en gps_km
+          para la fecha <strong>${this._fmtFecha(this.state.kmgps.fechaCsv)}</strong>.
+        `;
+      } else if (insertados > 0) {
+        resultado.className = 'kmgps-resultado kmgps-resultado-error';
+        resultado.innerHTML = `
+          ⚠️ <strong>Importación parcial.</strong><br>
+          OK: ${insertados} · Fallos: ${fallos}<br>
+          <small>${Utils.escapeHtml(erroresMsg.slice(0, 3).join(' · '))}</small>
+        `;
+      } else {
+        resultado.className = 'kmgps-resultado kmgps-resultado-error';
+        resultado.innerHTML = `
+          ❌ <strong>No se pudo importar.</strong><br>
+          <small>${Utils.escapeHtml(erroresMsg.slice(0, 3).join(' · '))}</small><br>
+          <small style="color: var(--text-muted);">¿La tabla <code>gps_km</code> existe y tu usuario tiene permisos?</small>
+        `;
+      }
+
+      // Refrescar historial
+      await this.cargarHistorialKmGps();
+      this.renderHistorialKmGps();
+
+      // Limpiar selección si fue 100% exitoso
+      if (fallos === 0) {
+        setTimeout(() => this.kmgpsCancelar(), 100);
+      }
+    } catch (err) {
+      Utils.log('Error en importación masiva:', err);
+      progress.hidden = true;
+      resultado.hidden = false;
+      resultado.className = 'kmgps-resultado kmgps-resultado-error';
+      resultado.innerHTML = `❌ <strong>Error:</strong> ${Utils.escapeHtml(err.message || String(err))}`;
+    } finally {
+      btnConfirmar.disabled = false;
+      btnCancelar.disabled  = false;
+    }
+  },
+
+  // ----- Helpers de formato -----
+  _fmtFecha(iso) {
+    if (!iso) return '—';
+    const partes = String(iso).split('-');
+    if (partes.length !== 3) return iso;
+    return `${partes[2]}/${partes[1]}/${partes[0]}`;
+  },
+
+  _fmtFechaHora(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    const dd = String(d.getDate()).padStart(2,'0');
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const yy = d.getFullYear();
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mi = String(d.getMinutes()).padStart(2,'0');
+    return `${dd}/${mm}/${yy} ${hh}:${mi}`;
   },
 };
 
