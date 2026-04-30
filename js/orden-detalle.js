@@ -66,6 +66,20 @@ const OrdenDetalle = {
   },
 
   volver() {
+    // FIX: respetar la página de origen.
+    // Si venimos de otra pantalla de la app (jefe, historial, admin),
+    // usar history.back() — eso preserva el scroll donde estaba el usuario.
+    const ref = document.referrer || '';
+    const paginasInternas = ['jefe.html', 'historial.html', 'admin.html', 'tecnico.html'];
+    const vieneDeApp = paginasInternas.some(p => ref.includes(p));
+
+    if (vieneDeApp) {
+      history.back();
+      return;
+    }
+
+    // Fallback: si no hay referrer (acceso directo, recarga, link externo)
+    // ir al panel correspondiente al rol.
     const rol = this.state.profile.rol;
     if (rol === 'jefe_pista') window.location.href = 'jefe.html';
     else if (rol === 'tecnico') window.location.href = 'tecnico.html';
