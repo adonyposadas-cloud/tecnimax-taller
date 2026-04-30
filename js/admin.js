@@ -422,7 +422,7 @@ const Admin = {
     // Y filtramos por rango para los counts del rango
     const { data, error } = await supabaseClient
       .from('ordenes')
-      .select('num_orden, placa, prioridad, estado, motivo, creada_en, cerrada_en, creada_por');
+      .select('num_orden, placa, prioridad, estado, motivo, creada_en, cerrada_en, creada_por, entregada_en, motorista_nombre');
     if (error) throw error;
     this.state.ordenes = data || [];
   },
@@ -914,6 +914,15 @@ const Admin = {
     document.getElementById('kpi-ingresos').textContent = ingresos;
     document.getElementById('kpi-completados').textContent = completados;
     document.getElementById('kpi-tiempo-promedio').textContent = tiempoProm;
+
+    // KPI: Pendiente entrega = órdenes completadas que aún no han sido recogidas
+    // por un motorista. Es global (no del rango) porque mientras la unidad esté
+    // en el taller esperando, debe verse aquí independientemente del filtro.
+    const pendientesEntrega = this.state.ordenes.filter(
+      o => o.estado === 'completada' && !o.entregada_en
+    ).length;
+    const elPend = document.getElementById('kpi-pendiente-entrega');
+    if (elPend) elPend.textContent = pendientesEntrega;
   },
 
   // ==================== KPI MODAL DETALLE ====================
@@ -924,6 +933,7 @@ const Admin = {
       'pausados': 'Servicios pausados',
       'ingresos': 'Órdenes ingresadas',
       'completados': 'Órdenes completadas',
+      'pendiente-entrega': 'Pendientes de entrega al motorista',
       'alertas-mtto': 'Alertas de mantenimiento',
     };
 
@@ -1113,6 +1123,37 @@ const Admin = {
                 <div class="kpi-item-info">
                   <div class="kpi-item-titulo">${Utils.escapeHtml(o.placa)} · ${o.num_orden} ${fraccionHtml}</div>
                   <div class="kpi-item-meta">Completada ${fecha} · ${tiempoTotal} min total${cancelados > 0 ? ` · ${cancelados} cancelado${cancelados !== 1 ? 's' : ''}` : ''}</div>
+                </div>
+              </div>
+            `;
+          }).join('');
+      }
+    } else if (tipo === 'pendiente-entrega') {
+      // Lista las órdenes completadas que aún no han sido recogidas por motorista.
+      // Se ordena por la más antigua primero (las que llevan más esperando arriba).
+      const ords = this.state.ordenes.filter(
+        o => o.estado === 'completada' && !o.entregada_en
+      );
+      if (ords.length === 0) {
+        html = '<div class="empty-state"><p>Sin unidades pendientes de entrega. ✓</p></div>';
+      } else {
+        html = ords
+          .sort((a, b) => new Date(a.cerrada_en || 0) - new Date(b.cerrada_en || 0))
+          .map(o => {
+            const fecha = this.formatearFecha(o.cerrada_en);
+            // Calcular cuántas horas lleva esperando
+            const horasEspera = o.cerrada_en
+              ? Math.max(0, Math.round((Date.now() - new Date(o.cerrada_en)) / 3600000))
+              : 0;
+            const espera = horasEspera < 1 ? 'Recién terminada'
+                         : horasEspera === 1 ? 'Esperando 1 hora'
+                         : horasEspera < 24 ? `Esperando ${horasEspera} horas`
+                         : `Esperando ${Math.floor(horasEspera / 24)} día${Math.floor(horasEspera / 24) !== 1 ? 's' : ''}`;
+            return `
+              <div class="kpi-item" data-orden="${o.num_orden}">
+                <div class="kpi-item-info">
+                  <div class="kpi-item-titulo">${Utils.escapeHtml(o.placa)} · ${o.num_orden}</div>
+                  <div class="kpi-item-meta">Lista ${fecha} · ${espera}</div>
                 </div>
               </div>
             `;
