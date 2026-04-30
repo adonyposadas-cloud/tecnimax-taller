@@ -1621,6 +1621,21 @@ const Admin = {
         const ventanaIni = st.primerInicio > rangoIni ? st.primerInicio : rangoIni;
         const ventanaFin = st.ultimoFin < rangoFin ? st.ultimoFin : rangoFin;
 
+        // === DEBUG TEMPORAL: log para diagnosticar T.ACTIVO en cero ===
+        if (st.tiempoReal === 0 || st.tiempoReal < 60) {
+          console.log('[DEBUG T.ACTIVO]', {
+            tecnico: st.nombre || st.id,
+            primerInicio: st.primerInicio?.toISOString(),
+            ultimoFin: st.ultimoFin?.toISOString(),
+            ventanaIni: ventanaIni?.toISOString(),
+            ventanaFin: ventanaFin?.toISOString(),
+            rangoIni: rangoIni?.toISOString(),
+            rangoFin: rangoFin?.toISOString(),
+            servicios: st.servicios,
+            tiempoReal: st.tiempoReal,
+          });
+        }
+
         if (ventanaFin <= ventanaIni) {
           st.tiempoActivo = 0;
           st.aprovechamiento = null;
@@ -1631,6 +1646,13 @@ const Admin = {
         // Pausas también se acotan a la misma ventana ya recortada
         const pausasMin = this.calcularPausasTecnicoEnRango(st.id, ventanaIni, ventanaFin);
         st.tiempoActivo = Math.max(0, ventanaMin - pausasMin);
+
+        if (st.tiempoReal === 0 || st.tiempoReal < 60) {
+          console.log('[DEBUG T.ACTIVO calc]', {
+            tecnico: st.nombre || st.id,
+            ventanaMin, pausasMin, tiempoActivo: st.tiempoActivo,
+          });
+        }
 
         if (st.tiempoActivo > 0) {
           st.aprovechamiento = Math.round((st.tiempoReal / st.tiempoActivo) * 100);
