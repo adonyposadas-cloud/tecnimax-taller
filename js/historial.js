@@ -291,7 +291,11 @@ const Historial = {
     `).join('');
 
     list.querySelectorAll('.hist-combo-item').forEach(el => {
-      el.addEventListener('click', () => {
+      el.addEventListener('click', (e) => {
+        // FIX: detener propagación para evitar que el listener global
+        // "click fuera" interfiera con el cierre del combobox.
+        e.stopPropagation();
+
         const id = el.dataset.id;
         const item = items.find(x => x.id === id);
         if (!item) return;
