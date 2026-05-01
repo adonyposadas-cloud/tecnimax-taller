@@ -292,13 +292,36 @@ const Historial = {
 
     list.querySelectorAll('.hist-combo-item').forEach(el => {
       el.addEventListener('click', (e) => {
-        // FIX: detener propagación para evitar que el listener global
-        // "click fuera" interfiera con el cierre del combobox.
+        e.preventDefault();
         e.stopPropagation();
 
         const id = el.dataset.id;
-        const item = items.find(x => x.id === id);
-        if (!item) return;
+        console.log('[DEBUG combo click]', { tipo, id, hasUsuarios: (this.state.usuarios || []).length, hasCatalogo: (this.state.serviciosCatalogo || []).length });
+
+        if (!id) {
+          console.warn('[DEBUG combo] item sin data-id');
+          return;
+        }
+
+        // Buscar el item correspondiente en la fuente original (no del closure
+        // de items, que puede haber cambiado si se re-rendereó). Para técnico
+        // miramos usuarios; para servicio miramos serviciosCatalogo.
+        let item = null;
+        if (tipo === 'tecnico') {
+          const u = (this.state.usuarios || []).find(x => x.id === id);
+          if (u) item = { id: u.id, label: u.nombre };
+        } else if (tipo === 'servicio') {
+          const c = (this.state.serviciosCatalogo || []).find(x => x.id === id);
+          if (c) item = { id: c.id, label: c.nombre };
+        }
+
+        if (!item) {
+          console.warn('[DEBUG combo] no se encontró el item con id:', id);
+          return;
+        }
+
+        console.log('[DEBUG combo] aplicando selección:', item);
+
         this.state.filtros[tipo] = item.id;
         this.state.filtros[tipo + 'Label'] = item.label;
         this.cerrarCombobox(combo);
