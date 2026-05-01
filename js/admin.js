@@ -1508,42 +1508,115 @@ const Admin = {
     };
 
     // ========================================================================
-    // FASE 1: Filtrar servicios que TOCAN el rango (intersección no vacía)
+    // ALGORITMO DE INTERVALOS ACTIVOS
+    //
+    // Concepto: cada servicio se descompone en una serie de "intervalos activos"
+    // (lapsos donde el técnico realmente estaba trabajando en ese servicio).
+    //
+    // Ejemplo: si un servicio empezó 08:00, se pausó 09:00-09:30 y terminó 11:00,
+    //   intervalos activos del servicio = [(08:00, 09:00), (09:30, 11:00)]
+    //
+    // T. SERVICIOS (por servicio) = suma de duraciones de SUS intervalos activos
+    //   acotados al rango del filtro. Suma simple por técnico
+    //   (puede ser > rango si hay servicios solapados).
+    //
+    // T. ACTIVO (por técnico) = duración de la UNIÓN de intervalos activos
+    //   de TODOS sus servicios, acotados al rango. La unión resuelve solapamientos:
+    //   si trabajó dos servicios al mismo tiempo, ese minuto cuenta 1 sola vez.
+    //
+    // APROVECH. = T. SERVICIOS / T. ACTIVO * 100
+    //   100% = todo el tiempo activo lo dedicó a UN servicio a la vez
+    //   200% = típicamente trabajó 2 servicios simultáneos todo el tiempo
     // ========================================================================
-    const serviciosRango = this.state.servicios.filter(s => {
-      if (!s.hora_inicio) return false;
+
+    // Helper: construye la lista de intervalos activos de un servicio.
+    // Toma [hora_inicio, hora_fin_efectivo] y le "saca" los pedazos donde estuvo
+    // pausado (según historial_pausas). Devuelve [{ini, fin}] como objetos Date.
+    const intervalosActivosDeServicio = (s) => {
+      if (!s.hora_inicio) return [];
       const ini = new Date(s.hora_inicio);
+
+      // Determinar el "fin efectivo" del servicio
       let fin;
       if (s.estado === 'completado') {
-        if (!s.hora_fin) return false;
+        if (!s.hora_fin) return [];
         fin = new Date(s.hora_fin);
       } else if (s.estado === 'pausado') {
         const pausa = this.pausaAbierta(s.id);
         if (pausa) {
+          // Está pausado ahora mismo: el último período activo terminó al pausar
           fin = new Date(pausa.hora_pausa);
         } else {
-          // FIX: pausa cerrada pero servicio sigue en "pausado" (cierre de día).
-          // El último período activo terminó cuando empezó la última pausa,
-          // NO en "ahora" (eso inflaba el tiempo después de medianoche).
+          // Pausa cerrada pero estado todavía 'pausado' (ej: cierre de día):
+          // el último período activo terminó cuando empezó la última pausa
           const ult = this.ultimaPausaDelServicio(s.id);
           fin = ult ? new Date(ult.hora_pausa) : ini;
         }
       } else if (s.estado === 'en_progreso') {
         fin = ahora;
       } else {
-        return false;
+        return [];
       }
-      // ¿Hay intersección con el rango?
-      return ini < rangoFin && fin > rangoIni;
-    });
 
-    if (serviciosRango.length === 0) {
-      cont.innerHTML = '<div class="empty-state"><p>Sin servicios en este rango.</p></div>';
-      return;
-    }
+      if (fin <= ini) return [];
+
+      // Traer pausas CERRADAS de este servicio dentro de [ini, fin], ordenadas
+      const pausasCerradas = (this.state.pausas || [])
+        .filter(p => p.servicio_orden_id === s.id && p.hora_pausa && p.hora_reanudacion)
+        .map(p => ({ ini: new Date(p.hora_pausa), fin: new Date(p.hora_reanudacion) }))
+        .filter(p => p.ini < fin && p.fin > ini)
+        .sort((a, b) => a.ini - b.ini);
+
+      // Construir intervalos activos: ini -> primera pausa, después entre pausas,
+      // y desde la última reanudación al fin.
+      const intervalos = [];
+      let cursor = ini;
+      pausasCerradas.forEach(p => {
+        const pIni = p.ini < cursor ? cursor : p.ini;
+        const pFin = p.fin > fin ? fin : p.fin;
+        if (pIni > cursor) intervalos.push({ ini: cursor, fin: pIni });
+        if (pFin > cursor) cursor = pFin;
+      });
+      if (cursor < fin) intervalos.push({ ini: cursor, fin: fin });
+
+      return intervalos;
+    };
+
+    // Helper: acota un intervalo al rango del filtro. Devuelve null si no
+    // intersecta. Ambos extremos son Date.
+    const acotarAlRango = (intv) => {
+      const ini = intv.ini > rangoIni ? intv.ini : rangoIni;
+      const fin = intv.fin < rangoFin ? intv.fin : rangoFin;
+      if (fin <= ini) return null;
+      return { ini, fin };
+    };
+
+    // Helper: dado un array de intervalos, los une (resuelve solapamientos) y
+    // devuelve un nuevo array con los intervalos disjuntos en orden.
+    const unirIntervalos = (lista) => {
+      if (lista.length === 0) return [];
+      const ordenados = [...lista].sort((a, b) => a.ini - b.ini);
+      const resultado = [ordenados[0]];
+      for (let i = 1; i < ordenados.length; i++) {
+        const last = resultado[resultado.length - 1];
+        const curr = ordenados[i];
+        if (curr.ini <= last.fin) {
+          // Se solapan: extender el último si el actual va más allá
+          if (curr.fin > last.fin) last.fin = curr.fin;
+        } else {
+          resultado.push(curr);
+        }
+      }
+      return resultado;
+    };
+
+    // Helper: suma minutos de una lista de intervalos
+    const sumarMinutos = (lista) =>
+      lista.reduce((acc, x) => acc + Math.round((x.fin - x.ini) / 60000), 0);
 
     // ========================================================================
-    // FASE 2: Agrupar por técnico y calcular métricas (todo acotado al rango)
+    // FASE 1: Para cada técnico, calcular intervalos activos del rango y
+    //         las dos métricas (T. SERVICIOS y T. ACTIVO).
     // ========================================================================
     const stats = {};
     tecnicos.forEach(t => {
@@ -1552,118 +1625,73 @@ const Admin = {
         nombre: t.nombre,
         codigo: t.codigo,
         servicios: 0,
-        tiempoReal: 0,         // Suma de tiempos trabajados DENTRO del rango
+        tiempoReal: 0,        // T. SERVICIOS = suma simple (con solapamientos)
         tiempoEsperado: 0,
+        tiempoActivo: 0,      // T. ACTIVO = duración de la unión
         listaServicios: [],
-        primerInicio: null,    // ya acotado a rangoIni
-        ultimoFin: null,       // ya acotado a rangoFin
       };
     });
 
-    serviciosRango.forEach(s => {
-      if (!stats[s.tecnico_id]) return;
+    // Recorrer todos los servicios con técnico asignado y construir intervalos
+    const intervalosPorTecnico = {}; // { tecId: [intervalos acotados al rango] }
+
+    this.state.servicios.forEach(s => {
+      if (!s.tecnico_id || !stats[s.tecnico_id]) return;
+      if (!s.hora_inicio) return;
+
+      // 1. Intervalos activos del servicio (sin acotar)
+      const intervalos = intervalosActivosDeServicio(s);
+      if (intervalos.length === 0) return;
+
+      // 2. Acotar cada intervalo al rango del filtro
+      const intervalosRango = intervalos
+        .map(acotarAlRango)
+        .filter(x => x !== null);
+      if (intervalosRango.length === 0) return;
+
+      // 3. Suma de minutos de este servicio en el rango (para T. SERVICIOS)
+      const minutosServicio = sumarMinutos(intervalosRango);
+
+      // 4. Acumular al técnico
       const st = stats[s.tecnico_id];
       st.servicios += 1;
+      st.tiempoReal += minutosServicio;
       st.listaServicios.push(s);
 
       const cat = this.state.serviciosCatalogo.find(c => c.id === s.servicio_id);
       const mediana = cat?.tiempo_promedio_min || 0;
       st.tiempoEsperado += mediana;
 
-      // Determinar [iniReal, finReal] del servicio
-      const ini = new Date(s.hora_inicio);
-      let finReal;
-      if (s.estado === 'completado') {
-        finReal = new Date(s.hora_fin);
-      } else if (s.estado === 'pausado') {
-        const pausa = this.pausaAbierta(s.id);
-        if (pausa) {
-          finReal = new Date(pausa.hora_pausa);
-        } else {
-          // FIX: ver Fase 1. Si no hay pausa abierta pero el servicio sigue
-          // pausado, el período activo terminó en la última hora_pausa.
-          const ult = this.ultimaPausaDelServicio(s.id);
-          finReal = ult ? new Date(ult.hora_pausa) : ini;
-        }
-      } else { // en_progreso
-        finReal = ahora;
-      }
-
-      // Acotar al rango (esto es la clave del fix)
-      const iniAcotado = ini > rangoIni ? ini : rangoIni;
-      const finAcotado = finReal < rangoFin ? finReal : rangoFin;
-      if (finAcotado <= iniAcotado) return;
-
-      // Tiempo bruto en la ventana acotada
-      const brutoMin = Math.round((finAcotado - iniAcotado) / 60000);
-      // Pausas que cayeron en la ventana acotada (descontadas, no se cuentan como activo)
-      const pausasMin = pausasServicioInter(s.id, iniAcotado, finAcotado);
-      const tiempoMin = Math.max(0, brutoMin - pausasMin);
-      st.tiempoReal += tiempoMin;
-
-      // Tracking timeline (también acotado al rango)
-      if (!st.primerInicio || iniAcotado < st.primerInicio) st.primerInicio = iniAcotado;
-      if (!st.ultimoFin || finAcotado > st.ultimoFin) st.ultimoFin = finAcotado;
+      // Agregar intervalos a la lista global del técnico (para unir luego)
+      if (!intervalosPorTecnico[s.tecnico_id]) intervalosPorTecnico[s.tecnico_id] = [];
+      intervalosPorTecnico[s.tecnico_id].push(...intervalosRango);
     });
 
     // ========================================================================
-    // FASE 3: Calcular Tiempo Activo y Aprovechamiento
-    // T. Activo = ventana del técnico (ya acotada al rango) − pausas en esa ventana
-    //
-    // FIX: La ventana se ACOTA al rango del filtro y las pausas también.
-    // Esto evita que pausas largas de noches anteriores (ej: pausó ayer a las
-    // 16:00 y reanudó hoy a las 14:00 = 22h de pausa registrada) coman todo
-    // el T. Activo del día actual y dejen el indicador en 0.
+    // FASE 2: Calcular T. ACTIVO uniendo intervalos solapados
+    // ========================================================================
+    Object.keys(intervalosPorTecnico).forEach(tecId => {
+      const unidos = unirIntervalos(intervalosPorTecnico[tecId]);
+      stats[tecId].tiempoActivo = sumarMinutos(unidos);
+    });
+
+    // ========================================================================
+    // FASE 3: Aprovechamiento
     // ========================================================================
     Object.values(stats).forEach(st => {
-      if (st.primerInicio && st.ultimoFin) {
-        // Acotar la ventana del técnico al rango del filtro
-        const ventanaIni = st.primerInicio > rangoIni ? st.primerInicio : rangoIni;
-        const ventanaFin = st.ultimoFin < rangoFin ? st.ultimoFin : rangoFin;
-
-        // === DEBUG TEMPORAL: log para diagnosticar T.ACTIVO en cero ===
-        if (st.tiempoReal === 0 || st.tiempoReal < 60) {
-          console.log('[DEBUG T.ACTIVO]', {
-            tecnico: st.nombre || st.id,
-            primerInicio: st.primerInicio?.toISOString(),
-            ultimoFin: st.ultimoFin?.toISOString(),
-            ventanaIni: ventanaIni?.toISOString(),
-            ventanaFin: ventanaFin?.toISOString(),
-            rangoIni: rangoIni?.toISOString(),
-            rangoFin: rangoFin?.toISOString(),
-            servicios: st.servicios,
-            tiempoReal: st.tiempoReal,
-          });
-        }
-
-        if (ventanaFin <= ventanaIni) {
-          st.tiempoActivo = 0;
-          st.aprovechamiento = null;
-          return;
-        }
-
-        const ventanaMin = Math.max(0, Math.round((ventanaFin - ventanaIni) / 60000));
-        // Pausas también se acotan a la misma ventana ya recortada
-        const pausasMin = this.calcularPausasTecnicoEnRango(st.id, ventanaIni, ventanaFin);
-        st.tiempoActivo = Math.max(0, ventanaMin - pausasMin);
-
-        if (st.tiempoReal === 0 || st.tiempoReal < 60) {
-          console.log('[DEBUG T.ACTIVO calc]', {
-            tecnico: st.nombre || st.id,
-            ventanaMin, pausasMin, tiempoActivo: st.tiempoActivo,
-          });
-        }
-
-        if (st.tiempoActivo > 0) {
-          st.aprovechamiento = Math.round((st.tiempoReal / st.tiempoActivo) * 100);
-        } else {
-          st.aprovechamiento = null;
-        }
+      if (st.tiempoActivo > 0) {
+        st.aprovechamiento = Math.round((st.tiempoReal / st.tiempoActivo) * 100);
       } else {
-        st.tiempoActivo = null;
         st.aprovechamiento = null;
       }
     });
+
+    // Si nadie trabajó en el rango, mensaje vacío
+    const algunoConServicios = Object.values(stats).some(s => s.servicios > 0);
+    if (!algunoConServicios) {
+      cont.innerHTML = '<div class="empty-state"><p>Sin servicios en este rango.</p></div>';
+      return;
+    }
 
     // Filtrar técnicos con al menos 1 servicio
     const filas = Object.values(stats)
@@ -1722,7 +1750,7 @@ const Admin = {
 
       const tiempoTxt = this.formatMin(x.tiempoReal);
       const espTxt = this.formatMin(x.tiempoEsperado);
-      const activoTxt = x.tiempoActivo === null ? '—' : this.formatMin(x.tiempoActivo);
+      const activoTxt = (!x.tiempoActivo || x.tiempoActivo === 0) ? '—' : this.formatMin(x.tiempoActivo);
 
       // Detalle expandible — ahora muestra completados, pausados y en progreso
       const detalleServicios = x.listaServicios
@@ -1739,36 +1767,16 @@ const Admin = {
           const placa = orden?.placa || '—';
           const mediana = cat?.tiempo_promedio_min || 0;
 
-          // Calcular tiempo según estado (mismo cálculo que arriba)
-          let tiempoReal = 0;
+          // Tiempo del servicio EN EL RANGO (consistente con T. SERVICIOS de
+          // la fila resumen). Usa el mismo helper de intervalos activos.
+          const intervalosRango = intervalosActivosDeServicio(s)
+            .map(acotarAlRango)
+            .filter(iv => iv !== null);
+          const tiempoReal = sumarMinutos(intervalosRango);
+
           let etiquetaEstado = '';
-          if (s.estado === 'completado') {
-            tiempoReal = s.tiempo_real_min || 0;
-          } else if (s.estado === 'pausado') {
-            const pausa = this.pausaAbierta(s.id);
-            const ini = s.hora_inicio ? new Date(s.hora_inicio) : null;
-            if (ini) {
-              let finVentana;
-              if (pausa) {
-                finVentana = new Date(pausa.hora_pausa);
-              } else {
-                // FIX: el detalle expandido también se acota a la última pausa
-                // registrada cuando no hay pausa abierta (cierre de día).
-                const ult = this.ultimaPausaDelServicio(s.id);
-                finVentana = ult ? new Date(ult.hora_pausa) : ini;
-              }
-              const pausasPreviasMin = this.pausasPreviasMinutos(s.id, ini, finVentana);
-              tiempoReal = Math.max(0, Math.round((finVentana - ini) / 60000) - pausasPreviasMin);
-            }
-            etiquetaEstado = ' (pausado)';
-          } else if (s.estado === 'en_progreso') {
-            const ini = s.hora_inicio ? new Date(s.hora_inicio) : null;
-            if (ini) {
-              const pausasPreviasMin = this.pausasPreviasMinutos(s.id, ini, ahora);
-              tiempoReal = Math.max(0, Math.round((ahora - ini) / 60000) - pausasPreviasMin);
-            }
-            etiquetaEstado = ' (en progreso)';
-          }
+          if (s.estado === 'pausado') etiquetaEstado = ' (pausado)';
+          else if (s.estado === 'en_progreso') etiquetaEstado = ' (en progreso)';
 
           let detClass = 'detalle-normal';
           let detIcon = '';
