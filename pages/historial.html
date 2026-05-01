@@ -288,6 +288,13 @@
       flex-direction: column;
       overflow: hidden;
     }
+    /* FIX: el atributo HTML `hidden` aplica display:none, pero arriba ya
+       definimos display:flex con la misma especificidad. CSS gana en orden,
+       así que el panel quedaba visible incluso con hidden=true.
+       Forzamos display:none cuando el atributo está presente. */
+    .hist-combo-panel[hidden] {
+      display: none !important;
+    }
     .hist-combo-search {
       padding: 10px 12px;
       background: rgba(0,0,0,0.20);
