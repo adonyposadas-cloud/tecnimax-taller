@@ -30,6 +30,7 @@ const Admin = {
     horaInicio: 7,     // 07:00
     horaFin: 18,       // 18:00
     INTERVALO_MAX_MIN: 240,  // 4 horas
+    JORNADA_PAGADA_MIN: 480, // 8 horas (jornada fija pagada al técnico)
   },
 
   state: {
@@ -1802,11 +1803,43 @@ const Admin = {
     });
 
     // ========================================================================
-    // FASE 3: Aprovechamiento
+    // FASE 3: Aprovechamiento = T. ACTIVO / Jornada pagada del rango
+    //
+    // La jornada pagada se calcula como: 8h × cantidad de días hábiles
+    // (lunes a sábado, sin domingos) que el rango cubre.
+    //
+    // Ejemplos:
+    //   - Filtro "Hoy" (lunes) → 480 min de jornada
+    //   - Filtro "Día 30/04" → 480 min
+    //   - Filtro "Esta semana" (lun-sab) → 6 × 480 = 2880 min
+    //   - Filtro "Este mes" → ~26 días × 480 = 12480 min
+    //
+    // Esto da una métrica de "cuánto del tiempo pagado fue productivo".
     // ========================================================================
+    const JORNADA_MIN = this.CONFIG_HORARIO_LABORAL.JORNADA_PAGADA_MIN;
+
+    // Contar días hábiles entre rangoIni y rangoFin (lun-sab, sin domingos).
+    // Si querés excluir también sábados, cambiá la condición.
+    const contarDiasHabiles = () => {
+      let dias = 0;
+      const cursor = new Date(rangoIni);
+      cursor.setHours(0, 0, 0, 0);
+      const fin = new Date(rangoFin);
+      while (cursor <= fin) {
+        const diaSemana = cursor.getDay(); // 0=domingo
+        if (diaSemana !== 0) dias += 1;
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      return Math.max(1, dias); // mínimo 1 para evitar división por cero
+    };
+
+    const diasHabilesRango = contarDiasHabiles();
+    const jornadaPagadaMin = JORNADA_MIN * diasHabilesRango;
+
     Object.values(stats).forEach(st => {
-      if (st.tiempoActivo > 0) {
-        st.aprovechamiento = Math.round((st.tiempoReal / st.tiempoActivo) * 100);
+      if (st.servicios > 0 && jornadaPagadaMin > 0) {
+        // Aprovechamiento = qué porcentaje de su jornada pagada estuvo activo
+        st.aprovechamiento = Math.round((st.tiempoActivo / jornadaPagadaMin) * 100);
       } else {
         st.aprovechamiento = null;
       }
@@ -1869,8 +1902,12 @@ const Admin = {
       let aprovClass = 'normal';
       if (x.aprovechamiento !== null) {
         aprovTxt = `${x.aprovechamiento}%`;
-        if (x.aprovechamiento >= 87) aprovClass = 'aprov-bueno';
-        else if (x.aprovechamiento >= 70) aprovClass = 'aprov-medio';
+        // Escala basada en el % de jornada pagada que estuvo realmente activo:
+        //   ≥ 80% → excelente (verde)
+        //   60-79% → bueno (amarillo / medio)
+        //   < 60% → bajo (rojo)
+        if (x.aprovechamiento >= 80) aprovClass = 'aprov-bueno';
+        else if (x.aprovechamiento >= 60) aprovClass = 'aprov-medio';
         else aprovClass = 'aprov-bajo';
       }
 
