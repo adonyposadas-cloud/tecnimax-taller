@@ -15,6 +15,23 @@
 
 const Admin = {
 
+  // ========================================================================
+  // CONFIG: Horario laboral del taller (hora local)
+  // Cualquier intervalo de trabajo se acota a este horario en cada día.
+  // Si un técnico olvida pausar al final de la jornada, los minutos fuera
+  // del horario NO se cuentan como tiempo activo. Editá estos valores si
+  // cambia el horario operativo del taller.
+  //
+  // INTERVALO_MAX_MIN: tope de duración para un intervalo activo continuo
+  // sin pausa registrada. Refleja la realidad: nadie trabaja >4h continuas
+  // sin pausa. Si pasó eso, se asume olvido y se trunca.
+  // ========================================================================
+  CONFIG_HORARIO_LABORAL: {
+    horaInicio: 7,     // 07:00
+    horaFin: 18,       // 18:00
+    INTERVALO_MAX_MIN: 240,  // 4 horas
+  },
+
   state: {
     profile: null,
     rango: 'hoy',  // 'hoy' | 'semana' | 'mes' | 'dia'
@@ -594,6 +611,9 @@ const Admin = {
   },
 
   // ===== CERRAR DÍA DE TODOS: cerrar todas las pausas abiertas con un click =====
+  // FIX (Mejora C): además de cerrar pausas abiertas, también pausa los servicios
+  // en estado 'en_progreso' creando una pausa de motivo 'cierre_dia'. Esto evita
+  // que servicios olvidados sigan corriendo durante la noche y dañen las métricas.
   async cerrarDiaTodosRemoto() {
     const rol = this.state.profile?.rol;
     if (!['admin', 'jefe_pista'].includes(rol)) {
@@ -601,47 +621,90 @@ const Admin = {
       return;
     }
 
-    // Recolectar TODAS las pausas abiertas en memoria
+    // 1. Recolectar TODAS las pausas abiertas en memoria
     const pausasAbiertas = (this.state.pausas || []).filter(p => !p.hora_reanudacion);
 
-    if (pausasAbiertas.length === 0) {
-      alert('No hay pausas abiertas para cerrar.');
+    // 2. Recolectar TODOS los servicios en_progreso (sin pausa abierta)
+    const serviciosActivos = (this.state.servicios || []).filter(s => s.estado === 'en_progreso');
+
+    if (pausasAbiertas.length === 0 && serviciosActivos.length === 0) {
+      alert('No hay pausas abiertas ni servicios en progreso para cerrar.');
       return;
     }
 
     // Preparar resumen para el confirm
-    const lineas = pausasAbiertas.map(p => {
+    const lineasPausas = pausasAbiertas.map(p => {
       const tec = this.state.usuarios.find(u => u.id === p.tecnico_id);
       const serv = this.state.servicios.find(s => s.id === p.servicio_orden_id);
       const orden = serv ? this.state.ordenes.find(o => o.num_orden === serv.num_orden) : null;
       const placa = orden?.placa || '—';
-      return `  • ${tec?.nombre || 'desconocido'} — ${placa} (${p.motivo})`;
+      return `  • ${tec?.nombre || 'desconocido'} — ${placa} (pausa: ${p.motivo})`;
     });
 
+    const lineasActivos = serviciosActivos.map(s => {
+      const tec = this.state.usuarios.find(u => u.id === s.tecnico_id);
+      const orden = this.state.ordenes.find(o => o.num_orden === s.num_orden);
+      const placa = orden?.placa || '—';
+      return `  • ${tec?.nombre || 'desconocido'} — ${placa} (en progreso → se pausará)`;
+    });
+
+    const todasLasLineas = [...lineasPausas, ...lineasActivos];
+    const totalAcciones = pausasAbiertas.length + serviciosActivos.length;
+
     const ok = confirm(
-      `¿Cerrar el día de ${pausasAbiertas.length} pausa(s) abierta(s)?\n\n` +
-      lineas.join('\n') + '\n\n' +
+      `¿Cerrar el día? Se realizarán ${totalAcciones} acción(es):\n\n` +
+      todasLasLineas.join('\n') + '\n\n' +
       `Esto detiene todos los cronómetros AHORA.\n` +
       `Los servicios quedan pausados. Mañana los técnicos los reanudan y continúan.`
     );
     if (!ok) return;
 
     try {
-      // Cerrar todas en una sola transacción simulada (UPDATE masivo por IDs)
-      const ids = pausasAbiertas.map(p => p.id);
       const ahora = new Date().toISOString();
 
-      const { error } = await supabaseClient
-        .from('historial_pausas')
-        .update({ hora_reanudacion: ahora })
-        .in('id', ids);
-      if (error) throw error;
+      // 1. Cerrar todas las pausas abiertas
+      if (pausasAbiertas.length > 0) {
+        const ids = pausasAbiertas.map(p => p.id);
+        const { error: errPausas } = await supabaseClient
+          .from('historial_pausas')
+          .update({ hora_reanudacion: ahora })
+          .in('id', ids);
+        if (errPausas) throw errPausas;
+      }
 
-      Utils.log(`Cerrado día masivo: ${ids.length} pausas cerradas por ${rol}`);
-      alert(`✅ ${ids.length} pausa(s) cerrada(s) correctamente.`);
+      // 2. Crear pausa de cierre de día para cada servicio en_progreso
+      //    y cambiar su estado a 'pausado'
+      if (serviciosActivos.length > 0) {
+        const nuevasPausas = serviciosActivos.map(s => ({
+          servicio_orden_id: s.id,
+          tecnico_id: s.tecnico_id,
+          hora_pausa: ahora,
+          // Inmediatamente cerrada con la misma hora -> 0 minutos de pausa real,
+          // pero deja registro de que el día se cerró aquí.
+          hora_reanudacion: ahora,
+          motivo: 'cierre_dia',
+        }));
+
+        const { error: errInsert } = await supabaseClient
+          .from('historial_pausas')
+          .insert(nuevasPausas);
+        if (errInsert) throw errInsert;
+
+        // Cambiar estado de los servicios a 'pausado' para que mañana
+        // aparezcan listos para reanudar
+        const idsServicios = serviciosActivos.map(s => s.id);
+        const { error: errUpd } = await supabaseClient
+          .from('servicios_orden')
+          .update({ estado: 'pausado' })
+          .in('id', idsServicios);
+        if (errUpd) throw errUpd;
+      }
+
+      Utils.log(`Cerrado día masivo: ${pausasAbiertas.length} pausas + ${serviciosActivos.length} en_progreso por ${rol}`);
+      alert(`✅ Día cerrado: ${pausasAbiertas.length} pausa(s) cerradas + ${serviciosActivos.length} servicio(s) pausados.`);
     } catch (e) {
       console.error('Error cerrando día masivo:', e);
-      alert('Error al cerrar las pausas: ' + (e.message || 'desconocido'));
+      alert('Error al cerrar el día: ' + (e.message || 'desconocido'));
     }
   },
 
@@ -1587,13 +1650,64 @@ const Admin = {
       return intervalos;
     };
 
-    // Helper: acota un intervalo al rango del filtro. Devuelve null si no
-    // intersecta. Ambos extremos son Date.
+    // Helper: acota un intervalo al rango del filtro Y al horario laboral
+    // de cada día. Devuelve un ARRAY de sub-intervalos resultantes (puede ser
+    // vacío si no intersecta nada útil).
+    //
+    // Aplica DOS reglas para evitar inflar tiempos por olvidos de pausar:
+    //   1) Recorta al rango del filtro [rangoIni, rangoFin]
+    //   2) Recorta a la franja [horaInicio:00, horaFin:00] de cada día calendario
+    //      que toca. Esto descarta automáticamente la noche y madrugada.
+    const HORA_INI = this.CONFIG_HORARIO_LABORAL.horaInicio;
+    const HORA_FIN = this.CONFIG_HORARIO_LABORAL.horaFin;
+
     const acotarAlRango = (intv) => {
-      const ini = intv.ini > rangoIni ? intv.ini : rangoIni;
-      const fin = intv.fin < rangoFin ? intv.fin : rangoFin;
-      if (fin <= ini) return null;
-      return { ini, fin };
+      // Paso 1: acotar al rango del filtro
+      let ini = intv.ini > rangoIni ? new Date(intv.ini) : new Date(rangoIni);
+      let fin = intv.fin < rangoFin ? new Date(intv.fin) : new Date(rangoFin);
+      if (fin <= ini) return [];
+
+      // Paso 2: recorrer cada día calendario que cruza el intervalo y
+      // generar un sub-intervalo limitado al horario laboral de ese día.
+      const resultado = [];
+      let cursor = new Date(ini);
+      while (cursor < fin) {
+        // Calcular [diaIni, diaFin] del horario laboral del día actual
+        const diaLab = new Date(cursor);
+        diaLab.setHours(HORA_INI, 0, 0, 0);
+        const diaFinLab = new Date(cursor);
+        diaFinLab.setHours(HORA_FIN, 0, 0, 0);
+
+        // Acotar el sub-intervalo a [diaLab, diaFinLab] ∩ [cursor, fin]
+        const subIni = cursor > diaLab ? cursor : diaLab;
+        const finDelDia = new Date(cursor);
+        finDelDia.setHours(23, 59, 59, 999);
+        const techoCursor = fin < finDelDia ? fin : finDelDia;
+        const subFin = techoCursor < diaFinLab ? techoCursor : diaFinLab;
+        if (subFin > subIni) {
+          resultado.push({ ini: new Date(subIni), fin: new Date(subFin) });
+        }
+
+        // Avanzar al día siguiente, 00:00
+        const siguiente = new Date(cursor);
+        siguiente.setDate(siguiente.getDate() + 1);
+        siguiente.setHours(0, 0, 0, 0);
+        cursor = siguiente;
+      }
+      return resultado;
+    };
+
+    // Helper: aplica el tope máximo a un intervalo. Si dura más que
+    // INTERVALO_MAX_MIN, se trunca a ese máximo (caso típico: técnico no
+    // pausó y dejó el cronómetro corriendo). Solo se usa para intervalos
+    // ANTES de acotar al rango/horario; protege contra absurdos como
+    // "16 horas continuas sin pausa".
+    const TOPE_INTERVALO_MS = this.CONFIG_HORARIO_LABORAL.INTERVALO_MAX_MIN * 60000;
+    const aplicarTope = (intv) => {
+      if (intv.fin - intv.ini > TOPE_INTERVALO_MS) {
+        return { ini: intv.ini, fin: new Date(intv.ini.getTime() + TOPE_INTERVALO_MS) };
+      }
+      return intv;
     };
 
     // Helper: dado un array de intervalos, los une (resuelve solapamientos) y
@@ -1645,55 +1759,26 @@ const Admin = {
       if (!s.hora_inicio) return;
 
       // 1. Intervalos activos del servicio (sin acotar)
-      const intervalos = intervalosActivosDeServicio(s);
-      if (intervalos.length === 0) return;
+      const intervalosBrutos = intervalosActivosDeServicio(s);
+      if (intervalosBrutos.length === 0) return;
 
-      // 2. Acotar cada intervalo al rango del filtro
-      const intervalosRango = intervalos
-        .map(acotarAlRango)
-        .filter(x => x !== null);
+      // 2. Aplicar TOPE: ningún intervalo continuo puede superar el máximo
+      //    (defensa contra técnicos que olvidan pausar)
+      const intervalosTopeados = intervalosBrutos.map(aplicarTope);
+
+      // 3. Acotar al rango del filtro + horario laboral. Cada intervalo puede
+      //    expandirse a varios sub-intervalos (uno por día laboral cubierto).
+      const intervalosRango = [];
+      intervalosTopeados.forEach(iv => {
+        const subs = acotarAlRango(iv);
+        intervalosRango.push(...subs);
+      });
       if (intervalosRango.length === 0) return;
 
-      // 3. Suma de minutos de este servicio en el rango (para T. SERVICIOS)
+      // 4. Suma de minutos de este servicio en el rango (para T. SERVICIOS)
       const minutosServicio = sumarMinutos(intervalosRango);
 
-      // === DEBUG: log servicios sospechosos (>5h) ===
-      if (minutosServicio > 300) {
-        const cat = this.state.serviciosCatalogo.find(c => c.id === s.servicio_id);
-        const nombreSrv = cat?.nombre || '?';
-        const tec = stats[s.tecnico_id]?.nombre || '?';
-        // Listar TODAS las pausas de este servicio
-        const todasLasPausas = (this.state.pausas || [])
-          .filter(p => p.servicio_orden_id === s.id)
-          .sort((a, b) => new Date(a.hora_pausa) - new Date(b.hora_pausa))
-          .map(p => ({
-            pausa: p.hora_pausa,
-            reanudacion: p.hora_reanudacion || 'ABIERTA',
-            motivo: p.motivo,
-          }));
-        console.log('[DEBUG SOSPECHOSO]', {
-          tecnico: tec,
-          servicio: nombreSrv,
-          num_orden: s.num_orden,
-          estado: s.estado,
-          hora_inicio: s.hora_inicio,
-          hora_fin: s.hora_fin,
-          minutosCalculados: minutosServicio,
-          pausas: todasLasPausas,
-          intervalosOriginales: intervalos.map(i => ({
-            ini: i.ini.toISOString(),
-            fin: i.fin.toISOString(),
-            durMin: Math.round((i.fin - i.ini) / 60000),
-          })),
-          intervalosAcotados: intervalosRango.map(i => ({
-            ini: i.ini.toISOString(),
-            fin: i.fin.toISOString(),
-            durMin: Math.round((i.fin - i.ini) / 60000),
-          })),
-        });
-      }
-
-      // 4. Acumular al técnico
+      // 5. Acumular al técnico
       const st = stats[s.tecnico_id];
       st.servicios += 1;
       st.tiempoReal += minutosServicio;
@@ -1809,10 +1894,14 @@ const Admin = {
           const mediana = cat?.tiempo_promedio_min || 0;
 
           // Tiempo del servicio EN EL RANGO (consistente con T. SERVICIOS de
-          // la fila resumen). Usa el mismo helper de intervalos activos.
-          const intervalosRango = intervalosActivosDeServicio(s)
-            .map(acotarAlRango)
-            .filter(iv => iv !== null);
+          // la fila resumen). Usa el mismo helper + tope + horario laboral.
+          const intervalosBrutos = intervalosActivosDeServicio(s);
+          const intervalosTopeados = intervalosBrutos.map(aplicarTope);
+          const intervalosRango = [];
+          intervalosTopeados.forEach(iv => {
+            const subs = acotarAlRango(iv);
+            intervalosRango.push(...subs);
+          });
           const tiempoReal = sumarMinutos(intervalosRango);
 
           let etiquetaEstado = '';
