@@ -31,17 +31,22 @@ const Historial = {
     pausas: [],
     cancelaciones: [],
 
-    // Filtros activos
-    tipoBusqueda: 'placa',  // 'placa' | 'orden' | 'tecnico' | 'servicio'
-    busqueda: '',           // texto libre (placa/orden) o id seleccionado (tecnico/servicio)
-    busquedaLabel: '',      // label visible del item seleccionado en combobox
+    // Filtros activos — TODOS combinables, AND lógico entre ellos
+    filtros: {
+      placa: '',          // texto libre
+      orden: '',          // texto libre
+      tecnico: null,      // id (uuid) o null
+      tecnicoLabel: '',   // nombre visible
+      servicio: null,     // id (uuid) o null
+      servicioLabel: '',  // nombre visible
+    },
     periodo: 'todas',       // 'todas' | '7' | '30' | '90' | '365'
     estado: 'todos',        // 'todos' | 'completada' | 'cancelada' | ...
 
     // UI
     ordenesExpandidas: new Set(),  // Set de num_orden
-    comboFiltroTexto: '',          // texto del search interno del combobox
-    comboItemsCache: [],           // items renderizados en el combobox
+    // Estado de cada combobox abierto: { tecnico: 'texto', servicio: 'texto' }
+    comboFiltros: { tecnico: '', servicio: '' },
   },
 
   // ==================== INIT ====================
@@ -71,193 +76,194 @@ const Historial = {
 
     this.bindEventos();
     await this.cargarTodo();
-    this.actualizarUIBusqueda();
     this.aplicarFiltros();
   },
 
   // ==================== EVENTOS ====================
   bindEventos() {
-    // Chips de tipo de búsqueda
-    document.querySelectorAll('.hist-chip').forEach(chip => {
-      chip.addEventListener('click', () => {
-        const tipo = chip.dataset.tipo;
-        if (tipo === this.state.tipoBusqueda) return;
+    // ===== Inputs de texto: placa y orden =====
+    const inputPlaca = document.getElementById('hist-input-placa');
+    const inputOrden = document.getElementById('hist-input-orden');
 
-        document.querySelectorAll('.hist-chip').forEach(c => {
-          c.classList.remove('hist-chip-active');
-          c.setAttribute('aria-selected', 'false');
-        });
-        chip.classList.add('hist-chip-active');
-        chip.setAttribute('aria-selected', 'true');
-        this.state.tipoBusqueda = tipo;
-
-        // Limpiar valor previo al cambiar de tipo
-        this.state.busqueda = '';
-        this.state.busquedaLabel = '';
-
-        this.actualizarUIBusqueda();
+    let debouncePlaca, debounceOrden;
+    inputPlaca.addEventListener('input', (e) => {
+      clearTimeout(debouncePlaca);
+      debouncePlaca = setTimeout(() => {
+        this.state.filtros.placa = e.target.value;
+        this.actualizarBotonesClear();
         this.aplicarFiltros();
-      });
+      }, 200);
     });
-
-    // Input de búsqueda con debounce (placa, orden)
-    const search = document.getElementById('hist-search-input');
-    let debounceT;
-    search.addEventListener('input', (e) => {
-      clearTimeout(debounceT);
-      debounceT = setTimeout(() => {
-        this.state.busqueda = e.target.value;
+    inputOrden.addEventListener('input', (e) => {
+      clearTimeout(debounceOrden);
+      debounceOrden = setTimeout(() => {
+        this.state.filtros.orden = e.target.value;
+        this.actualizarBotonesClear();
         this.aplicarFiltros();
       }, 200);
     });
 
-    // ===== Combobox: trigger, search interno, click en items =====
-    const trigger = document.getElementById('hist-combo-trigger');
-    const panel = document.getElementById('hist-combo-panel');
-    const comboSearch = document.getElementById('hist-combo-search');
-    const clearBtn = document.getElementById('hist-combo-clear');
-
-    trigger.addEventListener('click', (e) => {
-      // Evitar que el click en la X dispare la apertura
-      if (e.target.id === 'hist-combo-clear') return;
-      this.toggleCombobox();
-    });
-    trigger.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        this.toggleCombobox();
-      }
+    // Botón ✕ de cada input
+    document.querySelectorAll('.hist-input-clear').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tipo = btn.dataset.clear;
+        this.state.filtros[tipo] = '';
+        if (tipo === 'placa') inputPlaca.value = '';
+        if (tipo === 'orden') inputOrden.value = '';
+        this.actualizarBotonesClear();
+        this.aplicarFiltros();
+      });
     });
 
-    clearBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.state.busqueda = '';
-      this.state.busquedaLabel = '';
-      this.actualizarUIBusqueda();
-      this.aplicarFiltros();
+    // ===== Comboboxes (técnico, servicio) =====
+    document.querySelectorAll('.hist-combobox').forEach(combo => {
+      const tipo = combo.dataset.combo; // 'tecnico' | 'servicio'
+      const trigger = combo.querySelector('.hist-combo-trigger');
+      const panel = combo.querySelector('.hist-combo-panel');
+      const search = combo.querySelector('.hist-combo-search');
+      const list = combo.querySelector('.hist-combo-list');
+      const clearBtn = combo.querySelector('.hist-combo-clear');
+
+      trigger.addEventListener('click', (e) => {
+        if (e.target === clearBtn) return;
+        this.toggleCombobox(combo);
+      });
+      trigger.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.toggleCombobox(combo);
+        }
+      });
+
+      clearBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.state.filtros[tipo] = null;
+        this.state.filtros[tipo + 'Label'] = '';
+        this.actualizarComboTrigger(combo);
+        this.aplicarFiltros();
+      });
+
+      search.addEventListener('input', (e) => {
+        this.state.comboFiltros[tipo] = e.target.value;
+        this.renderComboItems(combo);
+      });
     });
 
-    comboSearch.addEventListener('input', (e) => {
-      this.state.comboFiltroTexto = e.target.value;
-      this.renderComboItems();
-    });
-
-    // Cerrar combobox al click fuera
+    // Cerrar comboboxes al click fuera
     document.addEventListener('click', (e) => {
-      if (!e.target.closest('#hist-combobox')) {
-        this.cerrarCombobox();
-      }
+      document.querySelectorAll('.hist-combobox').forEach(combo => {
+        if (!combo.contains(e.target)) {
+          this.cerrarCombobox(combo);
+        }
+      });
     });
 
-    // Selector de período
+    // ===== Selectores de período/estado =====
     document.getElementById('hist-fecha-select').addEventListener('change', (e) => {
       this.state.periodo = e.target.value;
       this.aplicarFiltros();
     });
 
-    // Selector de estado
     document.getElementById('hist-estado-select').addEventListener('change', (e) => {
       this.state.estado = e.target.value;
       this.aplicarFiltros();
     });
 
-    // Botón limpiar filtros
+    // ===== Botón limpiar TODO =====
     document.getElementById('hist-btn-limpiar').addEventListener('click', () => {
-      this.state.busqueda = '';
-      this.state.busquedaLabel = '';
+      this.state.filtros = {
+        placa: '', orden: '',
+        tecnico: null, tecnicoLabel: '',
+        servicio: null, servicioLabel: '',
+      };
       this.state.periodo = 'todas';
       this.state.estado = 'todos';
-      document.getElementById('hist-search-input').value = '';
+      inputPlaca.value = '';
+      inputOrden.value = '';
       document.getElementById('hist-fecha-select').value = 'todas';
       document.getElementById('hist-estado-select').value = 'todos';
-      this.actualizarUIBusqueda();
+      // Limpiar UI de comboboxes
+      document.querySelectorAll('.hist-combobox').forEach(c => this.actualizarComboTrigger(c));
+      this.actualizarBotonesClear();
       this.aplicarFiltros();
     });
   },
 
-  // ===== Cambia entre input de texto y combobox según tipo de búsqueda =====
-  actualizarUIBusqueda() {
-    const tipo = this.state.tipoBusqueda;
-    const input = document.getElementById('hist-search-input');
-    const combo = document.getElementById('hist-combobox');
+  // Mostrar / ocultar la X de cada input
+  actualizarBotonesClear() {
+    document.querySelectorAll('.hist-input-clear').forEach(btn => {
+      const tipo = btn.dataset.clear;
+      btn.hidden = !this.state.filtros[tipo];
+    });
+  },
 
-    const usaCombo = (tipo === 'tecnico' || tipo === 'servicio');
-
-    if (usaCombo) {
-      input.hidden = true;
-      input.value = '';
-      combo.hidden = false;
-
-      // Actualizar texto del trigger según selección
-      const text = document.getElementById('hist-combo-text');
-      if (this.state.busquedaLabel) {
-        text.textContent = this.state.busquedaLabel;
-        text.classList.remove('is-placeholder');
-        document.getElementById('hist-combo-clear').hidden = false;
-      } else {
-        text.textContent = tipo === 'tecnico' ? 'Selecciona un técnico…' : 'Selecciona un servicio…';
-        text.classList.add('is-placeholder');
-        document.getElementById('hist-combo-clear').hidden = true;
-      }
+  // Refresca el texto y la X del trigger de un combobox según selección actual
+  actualizarComboTrigger(combo) {
+    const tipo = combo.dataset.combo;
+    const text = combo.querySelector('.hist-combo-text');
+    const clearBtn = combo.querySelector('.hist-combo-clear');
+    const id = this.state.filtros[tipo];
+    const label = this.state.filtros[tipo + 'Label'];
+    if (id) {
+      text.textContent = label || '—';
+      text.classList.remove('is-placeholder');
+      clearBtn.hidden = false;
     } else {
-      combo.hidden = true;
-      this.cerrarCombobox();
-      input.hidden = false;
-      input.value = this.state.busqueda || '';
-
-      const placeholders = {
-        placa: 'Ej: TAXI 7036',
-        orden: 'Ej: OT-0008',
-      };
-      input.placeholder = placeholders[tipo] || 'Buscar...';
-      input.focus();
+      text.textContent = 'Cualquiera';
+      text.classList.add('is-placeholder');
+      clearBtn.hidden = true;
     }
   },
 
-  toggleCombobox() {
-    const panel = document.getElementById('hist-combo-panel');
-    const trigger = document.getElementById('hist-combo-trigger');
+  toggleCombobox(combo) {
+    const panel = combo.querySelector('.hist-combo-panel');
+    const trigger = combo.querySelector('.hist-combo-trigger');
+    const search = combo.querySelector('.hist-combo-search');
+    const tipo = combo.dataset.combo;
     const isOpen = !panel.hidden;
+
     if (isOpen) {
-      this.cerrarCombobox();
+      this.cerrarCombobox(combo);
     } else {
+      // Cerrar otros comboboxes antes de abrir éste
+      document.querySelectorAll('.hist-combobox').forEach(c => {
+        if (c !== combo) this.cerrarCombobox(c);
+      });
       panel.hidden = false;
       trigger.classList.add('is-open');
       trigger.setAttribute('aria-expanded', 'true');
-      this.state.comboFiltroTexto = '';
-      const cs = document.getElementById('hist-combo-search');
-      cs.value = '';
-      this.renderComboItems();
-      setTimeout(() => cs.focus(), 30);
+      this.state.comboFiltros[tipo] = '';
+      search.value = '';
+      this.renderComboItems(combo);
+      setTimeout(() => search.focus(), 30);
     }
   },
 
-  cerrarCombobox() {
-    const panel = document.getElementById('hist-combo-panel');
-    const trigger = document.getElementById('hist-combo-trigger');
+  cerrarCombobox(combo) {
+    const panel = combo.querySelector('.hist-combo-panel');
+    const trigger = combo.querySelector('.hist-combo-trigger');
+    if (!panel) return;
     panel.hidden = true;
     trigger.classList.remove('is-open');
     trigger.setAttribute('aria-expanded', 'false');
   },
 
-  renderComboItems() {
-    const tipo = this.state.tipoBusqueda;
-    const list = document.getElementById('hist-combo-list');
-    const filtro = (this.state.comboFiltroTexto || '').toLowerCase().trim();
+  renderComboItems(combo) {
+    const tipo = combo.dataset.combo;
+    const list = combo.querySelector('.hist-combo-list');
+    const filtroTexto = (this.state.comboFiltros[tipo] || '').toLowerCase().trim();
 
     let items = [];
     if (tipo === 'tecnico') {
-      // Mostrar usuarios con rol técnico (los que aparecen en servicios)
       items = (this.state.usuarios || [])
         .filter(u => u.rol === 'tecnico' || u.rol === 'admin' || u.rol === 'jefe_pista')
         .map(u => ({
           id: u.id,
           label: u.nombre,
-          meta: u.codigo ? u.codigo : '',
+          meta: u.codigo || '',
         }))
         .sort((a, b) => (a.label || '').localeCompare(b.label || ''));
     } else if (tipo === 'servicio') {
-      // Mostrar catálogo de servicios activos
       items = (this.state.serviciosCatalogo || [])
         .map(c => ({
           id: c.id,
@@ -267,19 +273,18 @@ const Historial = {
         .sort((a, b) => (a.label || '').localeCompare(b.label || ''));
     }
 
-    // Aplicar filtro de búsqueda interno
-    if (filtro) {
-      items = items.filter(it => (it.label || '').toLowerCase().includes(filtro));
+    if (filtroTexto) {
+      items = items.filter(it => (it.label || '').toLowerCase().includes(filtroTexto));
     }
-    this.state.comboItemsCache = items;
 
     if (items.length === 0) {
       list.innerHTML = '<div class="hist-combo-empty">Sin resultados</div>';
       return;
     }
 
+    const seleccionadoId = this.state.filtros[tipo];
     list.innerHTML = items.map(it => `
-      <div class="hist-combo-item${this.state.busqueda === it.id ? ' is-active' : ''}" data-id="${Utils.escapeHtml(it.id)}">
+      <div class="hist-combo-item${seleccionadoId === it.id ? ' is-active' : ''}" data-id="${Utils.escapeHtml(it.id)}">
         <span>${Utils.escapeHtml(it.label || '—')}</span>
         ${it.meta ? `<span class="hist-combo-item-meta">${Utils.escapeHtml(it.meta)}</span>` : ''}
       </div>
@@ -288,12 +293,12 @@ const Historial = {
     list.querySelectorAll('.hist-combo-item').forEach(el => {
       el.addEventListener('click', () => {
         const id = el.dataset.id;
-        const item = this.state.comboItemsCache.find(x => x.id === id);
+        const item = items.find(x => x.id === id);
         if (!item) return;
-        this.state.busqueda = item.id;
-        this.state.busquedaLabel = item.label;
-        this.cerrarCombobox();
-        this.actualizarUIBusqueda();
+        this.state.filtros[tipo] = item.id;
+        this.state.filtros[tipo + 'Label'] = item.label;
+        this.cerrarCombobox(combo);
+        this.actualizarComboTrigger(combo);
         this.aplicarFiltros();
       });
     });
@@ -367,13 +372,20 @@ const Historial = {
   },
 
   // ==================== FILTRADO ====================
+  // AND lógico entre todos los filtros activos. Una orden pasa solo si:
+  //  - su placa contiene el texto de filtros.placa (si hay)
+  //  - su num_orden contiene el texto de filtros.orden (si hay)
+  //  - tiene al menos un servicio del técnico seleccionado (si hay)
+  //  - tiene al menos un servicio del catálogo seleccionado (si hay)
+  // Si AMBOS técnico y servicio están seleccionados, debe haber UN servicio
+  // con ese tecnico_id Y ese servicio_id (no basta con que existan por separado).
   aplicarFiltros() {
-    const tipo = this.state.tipoBusqueda;
-    // Para tecnico/servicio, busqueda es un UUID. Para placa/orden es texto libre.
-    const usaCombo = (tipo === 'tecnico' || tipo === 'servicio');
-    const q = usaCombo ? this.state.busqueda : this.state.busqueda.trim().toLowerCase();
+    const f = this.state.filtros;
     const periodo = this.state.periodo;
     const estadoFilter = this.state.estado;
+
+    const placaQ = (f.placa || '').trim().toLowerCase();
+    const ordenQ = (f.orden || '').trim().toLowerCase();
 
     // Calcular fecha límite si hay período
     let fechaDesde = null;
@@ -386,52 +398,72 @@ const Historial = {
       }
     }
 
-    // 1. Filtrar por período
+    // Filtro combinado: AND de todos los activos
     let resultado = this.state.ordenes.filter(o => {
-      if (!fechaDesde) return true;
-      const f = new Date(o.creada_en);
-      return f >= fechaDesde;
+      // Período
+      if (fechaDesde) {
+        const fc = new Date(o.creada_en);
+        if (fc < fechaDesde) return false;
+      }
+      // Estado
+      if (estadoFilter !== 'todos' && o.estado !== estadoFilter) return false;
+      // Placa
+      if (placaQ && !(o.placa || '').toLowerCase().includes(placaQ)) return false;
+      // Número de orden
+      if (ordenQ && !(o.num_orden || '').toLowerCase().includes(ordenQ)) return false;
+
+      // Filtros técnico/servicio: ambos pueden estar activos. Necesitamos
+      // los servicios de esta orden y verificar:
+      //  - si hay tecnico Y servicio: existe un servicio que cumple AMBOS
+      //  - si solo hay tecnico: existe servicio con ese tecnico_id
+      //  - si solo hay servicio: existe servicio con ese servicio_id
+      if (f.tecnico || f.servicio) {
+        const serviciosOrden = this.state.servicios.filter(s => s.num_orden === o.num_orden);
+        const cumple = serviciosOrden.some(s => {
+          if (f.tecnico && s.tecnico_id !== f.tecnico) return false;
+          if (f.servicio && s.servicio_id !== f.servicio) return false;
+          return true;
+        });
+        if (!cumple) return false;
+      }
+
+      return true;
     });
 
-    // 2. Filtrar por estado
-    if (estadoFilter !== 'todos') {
-      resultado = resultado.filter(o => o.estado === estadoFilter);
-    }
-
-    // 3. Filtrar por búsqueda según tipo
-    if (q) {
-      resultado = resultado.filter(o => this.coincideOrden(o, tipo, q));
-    }
-
-    // 4. Refrescar panel de estadísticas si aplica
+    // Refrescar panel de estadísticas
     this.actualizarStatsCard();
 
     // Render
     this.renderResultados(resultado);
   },
 
-  // ===== Panel de stats visible solo si hay un t\u00e9cnico O servicio seleccionado =====
-  // Si HAY ambos seleccionados (en realidad el filtro permite uno a la vez),
-  // o si en el filtro actual hay un t\u00e9cnico/servicio espec\u00edfico, calculamos
-  // estad\u00edsticas para los servicios completados que coinciden.
+  // ===== Panel de stats: muestra estadísticas según filtros activos =====
+  // Reglas:
+  //  - Si hay tecnico Y servicio: stats de ese técnico EN ese servicio,
+  //    comparado contra la media del taller en ESE servicio
+  //  - Si solo tecnico: stats globales del técnico (todos sus servicios)
+  //  - Si solo servicio: stats del taller en ese servicio
+  //  - Si nada de eso: panel oculto
   actualizarStatsCard() {
     const card = document.getElementById('hist-stats-card');
-    const tipo = this.state.tipoBusqueda;
-    const id = this.state.busqueda;
-
     if (!card) return;
-    if (!id || (tipo !== 'tecnico' && tipo !== 'servicio')) {
+
+    const f = this.state.filtros;
+    const tieneTecnico = !!f.tecnico;
+    const tieneServicio = !!f.servicio;
+
+    if (!tieneTecnico && !tieneServicio) {
       card.hidden = true;
       return;
     }
 
-    // Buscar servicios completados que coinciden con el filtro
-    let serviciosCoincidentes = (this.state.servicios || []).filter(s => {
+    // Buscar servicios completados que cumplen los filtros activos
+    const serviciosCoincidentes = (this.state.servicios || []).filter(s => {
       if (s.estado !== 'completado') return false;
       if (!s.tiempo_real_min || s.tiempo_real_min <= 0) return false;
-      if (tipo === 'tecnico') return s.tecnico_id === id;
-      if (tipo === 'servicio') return s.servicio_id === id;
-      return false;
+      if (tieneTecnico && s.tecnico_id !== f.tecnico) return false;
+      if (tieneServicio && s.servicio_id !== f.servicio) return false;
+      return true;
     });
 
     if (serviciosCoincidentes.length === 0) {
@@ -439,34 +471,46 @@ const Historial = {
       return;
     }
 
-    // Calcular estadísticas
     const tiempos = serviciosCoincidentes.map(s => s.tiempo_real_min);
     const total = tiempos.length;
     const promedio = Math.round(tiempos.reduce((a, b) => a + b, 0) / total);
     const minTiempo = Math.min(...tiempos);
     const maxTiempo = Math.max(...tiempos);
 
-    // Determinar título y subtítulo según el filtro activo
+    // Determinar título y media de referencia según combinación de filtros
     let titulo = '';
     let subtitulo = '';
     let mediaTallerMin = null;
     let mediaTallerLabel = '';
 
-    if (tipo === 'tecnico') {
-      const u = this.state.usuarios.find(x => x.id === id);
+    if (tieneTecnico && tieneServicio) {
+      const u = this.state.usuarios.find(x => x.id === f.tecnico);
+      const cat = this.state.serviciosCatalogo.find(c => c.id === f.servicio);
+      titulo = `${u?.nombre || 'Técnico'} × ${cat?.nombre || 'Servicio'}`;
+      subtitulo = 'Estadísticas específicas del técnico en este servicio';
+      // Media del taller para ESE servicio (todos los técnicos)
+      const tallerEnServicio = (this.state.servicios || [])
+        .filter(s => s.servicio_id === f.servicio && s.estado === 'completado' && s.tiempo_real_min > 0);
+      if (tallerEnServicio.length > 0) {
+        mediaTallerMin = Math.round(tallerEnServicio.reduce((a, b) => a + b.tiempo_real_min, 0) / tallerEnServicio.length);
+        mediaTallerLabel = `Sobre ${tallerEnServicio.length} servicios del taller`;
+      } else if (cat?.tiempo_promedio_min) {
+        mediaTallerMin = cat.tiempo_promedio_min;
+        mediaTallerLabel = 'Mediana del catálogo';
+      }
+    } else if (tieneTecnico) {
+      const u = this.state.usuarios.find(x => x.id === f.tecnico);
       titulo = `${u?.nombre || 'Técnico'} — Estadísticas globales`;
-      subtitulo = `Promedio del técnico vs promedio del taller (todos los servicios)`;
-      // Media del taller = promedio de TODOS los servicios completados con tiempo
+      subtitulo = 'Promedio del técnico en todos los servicios';
       const todos = (this.state.servicios || []).filter(s => s.estado === 'completado' && s.tiempo_real_min > 0);
       if (todos.length > 0) {
         mediaTallerMin = Math.round(todos.reduce((a, b) => a + b.tiempo_real_min, 0) / todos.length);
-        mediaTallerLabel = `Sobre ${todos.length} servicios`;
+        mediaTallerLabel = `Sobre ${todos.length} servicios del taller`;
       }
-    } else if (tipo === 'servicio') {
-      const cat = this.state.serviciosCatalogo.find(c => c.id === id);
-      titulo = `${cat?.nombre || 'Servicio'} — Estadísticas`;
-      subtitulo = `Tiempos reales del taller en este servicio`;
-      // Media del taller para este servicio = promedio del catálogo (mediana histórica)
+    } else if (tieneServicio) {
+      const cat = this.state.serviciosCatalogo.find(c => c.id === f.servicio);
+      titulo = `${cat?.nombre || 'Servicio'} — Estadísticas del taller`;
+      subtitulo = 'Tiempos reales de todos los técnicos en este servicio';
       if (cat?.tiempo_promedio_min) {
         mediaTallerMin = cat.tiempo_promedio_min;
         mediaTallerLabel = 'Mediana del catálogo';
@@ -484,7 +528,6 @@ const Historial = {
     if (mediaTallerMin !== null) {
       document.getElementById('hist-stat-media-taller').textContent = this.formatMin(mediaTallerMin);
       document.getElementById('hist-stat-media-base').textContent = mediaTallerLabel;
-      // Comparación
       const diff = promedio - mediaTallerMin;
       const vsEl = document.getElementById('hist-stat-vs-media');
       if (diff < 0) {
@@ -505,26 +548,6 @@ const Historial = {
     }
 
     card.hidden = false;
-  },
-
-  coincideOrden(orden, tipo, q) {
-    if (tipo === 'placa') {
-      return (orden.placa || '').toLowerCase().includes(q);
-    }
-    if (tipo === 'orden') {
-      return (orden.num_orden || '').toLowerCase().includes(q);
-    }
-    if (tipo === 'tecnico') {
-      // Match EXACTO por id de técnico (q es ahora un id, no texto)
-      const serviciosOrden = this.state.servicios.filter(s => s.num_orden === orden.num_orden);
-      return serviciosOrden.some(s => s.tecnico_id === q);
-    }
-    if (tipo === 'servicio') {
-      // Match EXACTO por id de servicio del catálogo
-      const serviciosOrden = this.state.servicios.filter(s => s.num_orden === orden.num_orden);
-      return serviciosOrden.some(s => s.servicio_id === q);
-    }
-    return true;
   },
 
   // ==================== RENDER ====================
@@ -562,18 +585,19 @@ const Historial = {
     const v = orden.vehiculos || {};
     const vehiculoTxt = `${v.marca || ''} ${v.modelo || ''}${v.anio ? ' ' + v.anio : ''}`.trim() || '—';
 
-    // FIX: Si el filtro activo es tecnico o servicio, mostrar SOLO los servicios
-    // que coinciden con el filtro (no los demás de la misma orden). Así, al
-    // buscar "Sadrac + Cambio de aceite" se ve únicamente ese servicio, no toda
-    // la orden con sus 3 servicios diferentes.
-    const tipo = this.state.tipoBusqueda;
-    const idFiltro = this.state.busqueda;
+    // FIX: Si hay filtro tecnico/servicio, mostrar SOLO los servicios que
+    // coinciden con AMBOS filtros (cuando aplica). Si solo hay tecnico,
+    // muestra los servicios de ese tecnico. Si solo hay servicio, muestra
+    // ese tipo de servicio. Si están los dos, muestra los que cumplen ambos.
+    const f = this.state.filtros;
     let serviciosOrden = this.state.servicios.filter(s => s.num_orden === num);
 
-    if (idFiltro && tipo === 'tecnico') {
-      serviciosOrden = serviciosOrden.filter(s => s.tecnico_id === idFiltro);
-    } else if (idFiltro && tipo === 'servicio') {
-      serviciosOrden = serviciosOrden.filter(s => s.servicio_id === idFiltro);
+    if (f.tecnico || f.servicio) {
+      serviciosOrden = serviciosOrden.filter(s => {
+        if (f.tecnico && s.tecnico_id !== f.tecnico) return false;
+        if (f.servicio && s.servicio_id !== f.servicio) return false;
+        return true;
+      });
     }
 
     const totalServicios = serviciosOrden.length;
@@ -766,13 +790,12 @@ const Historial = {
 
     const cancelado = s.estado === 'cancelado';
 
-    // Badge de velocidad: solo si hay filtro tecnico/servicio activo y este
-    // servicio est\u00e1 completado con tiempo. Compara contra la media del
-    // cat\u00e1logo: <85% = r\u00e1pido, >115% = lento, intermedio = normal.
+    // Badge de velocidad: solo si hay filtro tecnico Y/O servicio activo, y
+    // este servicio está completado con tiempo medible. Compara contra la
+    // mediana del catálogo: <85% = rápido, >115% = lento, intermedio = normal.
     let velocidadBadge = '';
-    const tipoActivo = this.state.tipoBusqueda;
-    const idActivo = this.state.busqueda;
-    const filtraVelocidad = idActivo && (tipoActivo === 'tecnico' || tipoActivo === 'servicio');
+    const fActiv = this.state.filtros;
+    const filtraVelocidad = !!fActiv.tecnico || !!fActiv.servicio;
     if (filtraVelocidad && s.estado === 'completado' && s.tiempo_real_min && tiempoEsperado) {
       const ratio = s.tiempo_real_min / tiempoEsperado;
       if (ratio < 0.85) {
