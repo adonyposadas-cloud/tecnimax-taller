@@ -1652,6 +1652,34 @@ const Admin = {
       // 3. Suma de minutos de este servicio en el rango (para T. SERVICIOS)
       const minutosServicio = sumarMinutos(intervalosRango);
 
+      // === DEBUG: log servicios con tiempo > 8h (sospechosos) ===
+      if (minutosServicio > 480) {
+        const cat = this.state.serviciosCatalogo.find(c => c.id === s.servicio_id);
+        const nombreSrv = cat?.nombre || '?';
+        const tec = stats[s.tecnico_id]?.nombre || '?';
+        console.log('[DEBUG SERVICIO LARGO]', {
+          tecnico: tec,
+          servicio: nombreSrv,
+          num_orden: s.num_orden,
+          estado: s.estado,
+          hora_inicio: s.hora_inicio,
+          hora_fin: s.hora_fin,
+          minutosCalculados: minutosServicio,
+          intervalosOriginales: intervalos.map(i => ({
+            ini: i.ini.toISOString(),
+            fin: i.fin.toISOString(),
+            durMin: Math.round((i.fin - i.ini) / 60000),
+          })),
+          intervalosAcotadosAlRango: intervalosRango.map(i => ({
+            ini: i.ini.toISOString(),
+            fin: i.fin.toISOString(),
+            durMin: Math.round((i.fin - i.ini) / 60000),
+          })),
+          rangoIni: rangoIni.toISOString(),
+          rangoFin: rangoFin.toISOString(),
+        });
+      }
+
       // 4. Acumular al técnico
       const st = stats[s.tecnico_id];
       st.servicios += 1;
