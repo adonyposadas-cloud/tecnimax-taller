@@ -33,12 +33,15 @@ const Historial = {
 
     // Filtros activos
     tipoBusqueda: 'placa',  // 'placa' | 'orden' | 'tecnico' | 'servicio'
-    busqueda: '',
+    busqueda: '',           // texto libre (placa/orden) o id seleccionado (tecnico/servicio)
+    busquedaLabel: '',      // label visible del item seleccionado en combobox
     periodo: 'todas',       // 'todas' | '7' | '30' | '90' | '365'
     estado: 'todos',        // 'todos' | 'completada' | 'cancelada' | ...
 
     // UI
     ordenesExpandidas: new Set(),  // Set de num_orden
+    comboFiltroTexto: '',          // texto del search interno del combobox
+    comboItemsCache: [],           // items renderizados en el combobox
   },
 
   // ==================== INIT ====================
@@ -68,6 +71,7 @@ const Historial = {
 
     this.bindEventos();
     await this.cargarTodo();
+    this.actualizarUIBusqueda();
     this.aplicarFiltros();
   },
 
@@ -87,22 +91,16 @@ const Historial = {
         chip.setAttribute('aria-selected', 'true');
         this.state.tipoBusqueda = tipo;
 
-        // Actualizar placeholder del input según el tipo
-        const input = document.getElementById('hist-search-input');
-        const placeholders = {
-          placa: 'Ej: TAXI 7036',
-          orden: 'Ej: OT-0008',
-          tecnico: 'Ej: Anibal',
-          servicio: 'Ej: Cambio de aceite',
-        };
-        input.placeholder = placeholders[tipo] || 'Buscar...';
-        input.focus();
+        // Limpiar valor previo al cambiar de tipo
+        this.state.busqueda = '';
+        this.state.busquedaLabel = '';
 
+        this.actualizarUIBusqueda();
         this.aplicarFiltros();
       });
     });
 
-    // Input de búsqueda con debounce
+    // Input de búsqueda con debounce (placa, orden)
     const search = document.getElementById('hist-search-input');
     let debounceT;
     search.addEventListener('input', (e) => {
@@ -111,6 +109,44 @@ const Historial = {
         this.state.busqueda = e.target.value;
         this.aplicarFiltros();
       }, 200);
+    });
+
+    // ===== Combobox: trigger, search interno, click en items =====
+    const trigger = document.getElementById('hist-combo-trigger');
+    const panel = document.getElementById('hist-combo-panel');
+    const comboSearch = document.getElementById('hist-combo-search');
+    const clearBtn = document.getElementById('hist-combo-clear');
+
+    trigger.addEventListener('click', (e) => {
+      // Evitar que el click en la X dispare la apertura
+      if (e.target.id === 'hist-combo-clear') return;
+      this.toggleCombobox();
+    });
+    trigger.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        this.toggleCombobox();
+      }
+    });
+
+    clearBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.state.busqueda = '';
+      this.state.busquedaLabel = '';
+      this.actualizarUIBusqueda();
+      this.aplicarFiltros();
+    });
+
+    comboSearch.addEventListener('input', (e) => {
+      this.state.comboFiltroTexto = e.target.value;
+      this.renderComboItems();
+    });
+
+    // Cerrar combobox al click fuera
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#hist-combobox')) {
+        this.cerrarCombobox();
+      }
     });
 
     // Selector de período
@@ -128,12 +164,138 @@ const Historial = {
     // Botón limpiar filtros
     document.getElementById('hist-btn-limpiar').addEventListener('click', () => {
       this.state.busqueda = '';
+      this.state.busquedaLabel = '';
       this.state.periodo = 'todas';
       this.state.estado = 'todos';
       document.getElementById('hist-search-input').value = '';
       document.getElementById('hist-fecha-select').value = 'todas';
       document.getElementById('hist-estado-select').value = 'todos';
+      this.actualizarUIBusqueda();
       this.aplicarFiltros();
+    });
+  },
+
+  // ===== Cambia entre input de texto y combobox según tipo de búsqueda =====
+  actualizarUIBusqueda() {
+    const tipo = this.state.tipoBusqueda;
+    const input = document.getElementById('hist-search-input');
+    const combo = document.getElementById('hist-combobox');
+
+    const usaCombo = (tipo === 'tecnico' || tipo === 'servicio');
+
+    if (usaCombo) {
+      input.hidden = true;
+      input.value = '';
+      combo.hidden = false;
+
+      // Actualizar texto del trigger según selección
+      const text = document.getElementById('hist-combo-text');
+      if (this.state.busquedaLabel) {
+        text.textContent = this.state.busquedaLabel;
+        text.classList.remove('is-placeholder');
+        document.getElementById('hist-combo-clear').hidden = false;
+      } else {
+        text.textContent = tipo === 'tecnico' ? 'Selecciona un técnico…' : 'Selecciona un servicio…';
+        text.classList.add('is-placeholder');
+        document.getElementById('hist-combo-clear').hidden = true;
+      }
+    } else {
+      combo.hidden = true;
+      this.cerrarCombobox();
+      input.hidden = false;
+      input.value = this.state.busqueda || '';
+
+      const placeholders = {
+        placa: 'Ej: TAXI 7036',
+        orden: 'Ej: OT-0008',
+      };
+      input.placeholder = placeholders[tipo] || 'Buscar...';
+      input.focus();
+    }
+  },
+
+  toggleCombobox() {
+    const panel = document.getElementById('hist-combo-panel');
+    const trigger = document.getElementById('hist-combo-trigger');
+    const isOpen = !panel.hidden;
+    if (isOpen) {
+      this.cerrarCombobox();
+    } else {
+      panel.hidden = false;
+      trigger.classList.add('is-open');
+      trigger.setAttribute('aria-expanded', 'true');
+      this.state.comboFiltroTexto = '';
+      const cs = document.getElementById('hist-combo-search');
+      cs.value = '';
+      this.renderComboItems();
+      setTimeout(() => cs.focus(), 30);
+    }
+  },
+
+  cerrarCombobox() {
+    const panel = document.getElementById('hist-combo-panel');
+    const trigger = document.getElementById('hist-combo-trigger');
+    panel.hidden = true;
+    trigger.classList.remove('is-open');
+    trigger.setAttribute('aria-expanded', 'false');
+  },
+
+  renderComboItems() {
+    const tipo = this.state.tipoBusqueda;
+    const list = document.getElementById('hist-combo-list');
+    const filtro = (this.state.comboFiltroTexto || '').toLowerCase().trim();
+
+    let items = [];
+    if (tipo === 'tecnico') {
+      // Mostrar usuarios con rol técnico (los que aparecen en servicios)
+      items = (this.state.usuarios || [])
+        .filter(u => u.rol === 'tecnico' || u.rol === 'admin' || u.rol === 'jefe_pista')
+        .map(u => ({
+          id: u.id,
+          label: u.nombre,
+          meta: u.codigo ? u.codigo : '',
+        }))
+        .sort((a, b) => (a.label || '').localeCompare(b.label || ''));
+    } else if (tipo === 'servicio') {
+      // Mostrar catálogo de servicios activos
+      items = (this.state.serviciosCatalogo || [])
+        .map(c => ({
+          id: c.id,
+          label: c.nombre,
+          meta: c.tiempo_promedio_min ? `${c.tiempo_promedio_min} min` : '',
+        }))
+        .sort((a, b) => (a.label || '').localeCompare(b.label || ''));
+    }
+
+    // Aplicar filtro de búsqueda interno
+    if (filtro) {
+      items = items.filter(it => (it.label || '').toLowerCase().includes(filtro));
+    }
+    this.state.comboItemsCache = items;
+
+    if (items.length === 0) {
+      list.innerHTML = '<div class="hist-combo-empty">Sin resultados</div>';
+      return;
+    }
+
+    list.innerHTML = items.map(it => `
+      <div class="hist-combo-item${this.state.busqueda === it.id ? ' is-active' : ''}" data-id="${Utils.escapeHtml(it.id)}">
+        <span>${Utils.escapeHtml(it.label || '—')}</span>
+        ${it.meta ? `<span class="hist-combo-item-meta">${Utils.escapeHtml(it.meta)}</span>` : ''}
+      </div>
+    `).join('');
+
+    list.querySelectorAll('.hist-combo-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.id;
+        const item = this.state.comboItemsCache.find(x => x.id === id);
+        if (!item) return;
+        this.state.busqueda = item.id;
+        this.state.busquedaLabel = item.label;
+        this.cerrarCombobox();
+        this.actualizarUIBusqueda();
+        this.aplicarFiltros();
+      });
     });
   },
 
@@ -206,8 +368,10 @@ const Historial = {
 
   // ==================== FILTRADO ====================
   aplicarFiltros() {
-    const q = this.state.busqueda.trim().toLowerCase();
     const tipo = this.state.tipoBusqueda;
+    // Para tecnico/servicio, busqueda es un UUID. Para placa/orden es texto libre.
+    const usaCombo = (tipo === 'tecnico' || tipo === 'servicio');
+    const q = usaCombo ? this.state.busqueda : this.state.busqueda.trim().toLowerCase();
     const periodo = this.state.periodo;
     const estadoFilter = this.state.estado;
 
@@ -239,8 +403,108 @@ const Historial = {
       resultado = resultado.filter(o => this.coincideOrden(o, tipo, q));
     }
 
+    // 4. Refrescar panel de estadísticas si aplica
+    this.actualizarStatsCard();
+
     // Render
     this.renderResultados(resultado);
+  },
+
+  // ===== Panel de stats visible solo si hay un t\u00e9cnico O servicio seleccionado =====
+  // Si HAY ambos seleccionados (en realidad el filtro permite uno a la vez),
+  // o si en el filtro actual hay un t\u00e9cnico/servicio espec\u00edfico, calculamos
+  // estad\u00edsticas para los servicios completados que coinciden.
+  actualizarStatsCard() {
+    const card = document.getElementById('hist-stats-card');
+    const tipo = this.state.tipoBusqueda;
+    const id = this.state.busqueda;
+
+    if (!card) return;
+    if (!id || (tipo !== 'tecnico' && tipo !== 'servicio')) {
+      card.hidden = true;
+      return;
+    }
+
+    // Buscar servicios completados que coinciden con el filtro
+    let serviciosCoincidentes = (this.state.servicios || []).filter(s => {
+      if (s.estado !== 'completado') return false;
+      if (!s.tiempo_real_min || s.tiempo_real_min <= 0) return false;
+      if (tipo === 'tecnico') return s.tecnico_id === id;
+      if (tipo === 'servicio') return s.servicio_id === id;
+      return false;
+    });
+
+    if (serviciosCoincidentes.length === 0) {
+      card.hidden = true;
+      return;
+    }
+
+    // Calcular estadísticas
+    const tiempos = serviciosCoincidentes.map(s => s.tiempo_real_min);
+    const total = tiempos.length;
+    const promedio = Math.round(tiempos.reduce((a, b) => a + b, 0) / total);
+    const minTiempo = Math.min(...tiempos);
+    const maxTiempo = Math.max(...tiempos);
+
+    // Determinar título y subtítulo según el filtro activo
+    let titulo = '';
+    let subtitulo = '';
+    let mediaTallerMin = null;
+    let mediaTallerLabel = '';
+
+    if (tipo === 'tecnico') {
+      const u = this.state.usuarios.find(x => x.id === id);
+      titulo = `${u?.nombre || 'Técnico'} — Estadísticas globales`;
+      subtitulo = `Promedio del técnico vs promedio del taller (todos los servicios)`;
+      // Media del taller = promedio de TODOS los servicios completados con tiempo
+      const todos = (this.state.servicios || []).filter(s => s.estado === 'completado' && s.tiempo_real_min > 0);
+      if (todos.length > 0) {
+        mediaTallerMin = Math.round(todos.reduce((a, b) => a + b.tiempo_real_min, 0) / todos.length);
+        mediaTallerLabel = `Sobre ${todos.length} servicios`;
+      }
+    } else if (tipo === 'servicio') {
+      const cat = this.state.serviciosCatalogo.find(c => c.id === id);
+      titulo = `${cat?.nombre || 'Servicio'} — Estadísticas`;
+      subtitulo = `Tiempos reales del taller en este servicio`;
+      // Media del taller para este servicio = promedio del catálogo (mediana histórica)
+      if (cat?.tiempo_promedio_min) {
+        mediaTallerMin = cat.tiempo_promedio_min;
+        mediaTallerLabel = 'Mediana del catálogo';
+      }
+    }
+
+    // Llenar UI
+    document.getElementById('hist-stats-title').textContent = titulo;
+    document.getElementById('hist-stats-sub').textContent = subtitulo;
+    document.getElementById('hist-stat-count').textContent = total;
+    document.getElementById('hist-stat-promedio').textContent = this.formatMin(promedio);
+    document.getElementById('hist-stat-min').textContent = this.formatMin(minTiempo);
+    document.getElementById('hist-stat-max').textContent = this.formatMin(maxTiempo);
+
+    if (mediaTallerMin !== null) {
+      document.getElementById('hist-stat-media-taller').textContent = this.formatMin(mediaTallerMin);
+      document.getElementById('hist-stat-media-base').textContent = mediaTallerLabel;
+      // Comparación
+      const diff = promedio - mediaTallerMin;
+      const vsEl = document.getElementById('hist-stat-vs-media');
+      if (diff < 0) {
+        vsEl.textContent = `⚡ ${Math.abs(diff)} min más rápido`;
+        vsEl.className = 'hist-stat-extra hist-stat-vs-rapido';
+      } else if (diff > 0) {
+        vsEl.textContent = `🐢 ${diff} min más lento`;
+        vsEl.className = 'hist-stat-extra hist-stat-vs-lento';
+      } else {
+        vsEl.textContent = '= igual a la media';
+        vsEl.className = 'hist-stat-extra';
+      }
+    } else {
+      document.getElementById('hist-stat-media-taller').textContent = '—';
+      document.getElementById('hist-stat-media-base').textContent = 'Sin referencia';
+      document.getElementById('hist-stat-vs-media').textContent = '—';
+      document.getElementById('hist-stat-vs-media').className = 'hist-stat-extra';
+    }
+
+    card.hidden = false;
   },
 
   coincideOrden(orden, tipo, q) {
@@ -251,24 +515,14 @@ const Historial = {
       return (orden.num_orden || '').toLowerCase().includes(q);
     }
     if (tipo === 'tecnico') {
-      // Buscar en los servicios de esta orden si algún técnico coincide por nombre o código
+      // Match EXACTO por id de técnico (q es ahora un id, no texto)
       const serviciosOrden = this.state.servicios.filter(s => s.num_orden === orden.num_orden);
-      return serviciosOrden.some(s => {
-        const u = this.state.usuarios.find(x => x.id === s.tecnico_id);
-        if (!u) return false;
-        const nombre = (u.nombre || '').toLowerCase();
-        const codigo = (u.codigo || '').toLowerCase();
-        return nombre.includes(q) || codigo.includes(q);
-      });
+      return serviciosOrden.some(s => s.tecnico_id === q);
     }
     if (tipo === 'servicio') {
-      // Buscar en los servicios de esta orden si algún catálogo coincide
+      // Match EXACTO por id de servicio del catálogo
       const serviciosOrden = this.state.servicios.filter(s => s.num_orden === orden.num_orden);
-      return serviciosOrden.some(s => {
-        const cat = this.state.serviciosCatalogo.find(c => c.id === s.servicio_id);
-        if (!cat) return false;
-        return (cat.nombre || '').toLowerCase().includes(q);
-      });
+      return serviciosOrden.some(s => s.servicio_id === q);
     }
     return true;
   },
@@ -308,17 +562,31 @@ const Historial = {
     const v = orden.vehiculos || {};
     const vehiculoTxt = `${v.marca || ''} ${v.modelo || ''}${v.anio ? ' ' + v.anio : ''}`.trim() || '—';
 
-    const serviciosOrden = this.state.servicios.filter(s => s.num_orden === num);
+    // FIX: Si el filtro activo es tecnico o servicio, mostrar SOLO los servicios
+    // que coinciden con el filtro (no los demás de la misma orden). Así, al
+    // buscar "Sadrac + Cambio de aceite" se ve únicamente ese servicio, no toda
+    // la orden con sus 3 servicios diferentes.
+    const tipo = this.state.tipoBusqueda;
+    const idFiltro = this.state.busqueda;
+    let serviciosOrden = this.state.servicios.filter(s => s.num_orden === num);
+
+    if (idFiltro && tipo === 'tecnico') {
+      serviciosOrden = serviciosOrden.filter(s => s.tecnico_id === idFiltro);
+    } else if (idFiltro && tipo === 'servicio') {
+      serviciosOrden = serviciosOrden.filter(s => s.servicio_id === idFiltro);
+    }
+
     const totalServicios = serviciosOrden.length;
     const completados = serviciosOrden.filter(s => s.estado === 'completado').length;
     const cancelados = serviciosOrden.filter(s => s.estado === 'cancelado').length;
 
-    // Tiempo total trabajado en esta orden (suma de tiempo_real_min)
+    // Tiempo total trabajado en esta orden (suma de tiempo_real_min) — solo de
+    // los servicios visibles según filtro
     const tiempoTotalMin = serviciosOrden
       .filter(s => s.estado === 'completado' && s.tiempo_real_min)
       .reduce((acc, s) => acc + s.tiempo_real_min, 0);
 
-    // Técnicos únicos que participaron
+    // Técnicos únicos que participaron (en los servicios visibles)
     const tecnicosIds = new Set(serviciosOrden.map(s => s.tecnico_id).filter(Boolean));
     const tecnicosNombres = [...tecnicosIds]
       .map(id => {
@@ -498,10 +766,28 @@ const Historial = {
 
     const cancelado = s.estado === 'cancelado';
 
+    // Badge de velocidad: solo si hay filtro tecnico/servicio activo y este
+    // servicio est\u00e1 completado con tiempo. Compara contra la media del
+    // cat\u00e1logo: <85% = r\u00e1pido, >115% = lento, intermedio = normal.
+    let velocidadBadge = '';
+    const tipoActivo = this.state.tipoBusqueda;
+    const idActivo = this.state.busqueda;
+    const filtraVelocidad = idActivo && (tipoActivo === 'tecnico' || tipoActivo === 'servicio');
+    if (filtraVelocidad && s.estado === 'completado' && s.tiempo_real_min && tiempoEsperado) {
+      const ratio = s.tiempo_real_min / tiempoEsperado;
+      if (ratio < 0.85) {
+        velocidadBadge = '<span class="hist-servicio-velocidad hist-servicio-velocidad-rapido">⚡ Rápido</span>';
+      } else if (ratio > 1.15) {
+        velocidadBadge = '<span class="hist-servicio-velocidad hist-servicio-velocidad-lento">🐢 Lento</span>';
+      } else {
+        velocidadBadge = '<span class="hist-servicio-velocidad hist-servicio-velocidad-normal">≈ Normal</span>';
+      }
+    }
+
     return `
       <div class="hist-servicio-row${cancelado ? ' hist-servicio-cancelado' : ''}">
         <div class="hist-servicio-info">
-          <div class="hist-servicio-nombre">${Utils.escapeHtml(nombre)}</div>
+          <div class="hist-servicio-nombre">${Utils.escapeHtml(nombre)}${velocidadBadge}</div>
           ${tecnico !== '—' ? `<div class="hist-servicio-tecnico">Técnico: <strong>${Utils.escapeHtml(tecnico)}</strong>${agregadoPor && agregadoPor !== '—' ? ` · agregado por ${Utils.escapeHtml(agregadoPor)}` : ''}</div>` : ''}
           ${inicio || fin ? `<div class="hist-servicio-tiempos">${inicio ? '▶ ' + inicio : ''}${fin ? ' → ⏹ ' + fin : ''}</div>` : ''}
           ${sospechoso ? `<div class="hist-servicio-sospechoso">⚠ Tiempo sospechoso${tiempoEsperado ? ` (esperado ~${tiempoEsperado} min)` : ''}</div>` : ''}
