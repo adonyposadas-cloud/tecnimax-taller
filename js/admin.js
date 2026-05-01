@@ -191,9 +191,14 @@ const Admin = {
       desde.setHours(0, 0, 0, 0);
       hasta = new Date(desde);
       hasta.setHours(23, 59, 59, 999);
-      // Si el día seleccionado es hoy, hasta = ahora (no futuro)
-      if (hasta > ahora) hasta = ahora;
     }
+
+    // FIX: garantizar que `hasta` JAMÁS sea futuro. Esto se aplica a TODOS los
+    // filtros como salvavidas, no solo a "día específico". Si el reloj de la
+    // máquina se desincroniza un poco o si el filtro "día" apunta al día actual,
+    // `hasta` no debe rebasar "ahora", o si no estaríamos contando tiempo que
+    // todavía no ha ocurrido.
+    if (hasta > ahora) hasta = ahora;
 
     this.state.fechaDesde = desde.toISOString();
     this.state.fechaHasta = hasta.toISOString();
@@ -1652,12 +1657,21 @@ const Admin = {
       // 3. Suma de minutos de este servicio en el rango (para T. SERVICIOS)
       const minutosServicio = sumarMinutos(intervalosRango);
 
-      // === DEBUG: log servicios con tiempo > 8h (sospechosos) ===
-      if (minutosServicio > 480) {
+      // === DEBUG: log servicios sospechosos (>5h) ===
+      if (minutosServicio > 300) {
         const cat = this.state.serviciosCatalogo.find(c => c.id === s.servicio_id);
         const nombreSrv = cat?.nombre || '?';
         const tec = stats[s.tecnico_id]?.nombre || '?';
-        console.log('[DEBUG SERVICIO LARGO]', {
+        // Listar TODAS las pausas de este servicio
+        const todasLasPausas = (this.state.pausas || [])
+          .filter(p => p.servicio_orden_id === s.id)
+          .sort((a, b) => new Date(a.hora_pausa) - new Date(b.hora_pausa))
+          .map(p => ({
+            pausa: p.hora_pausa,
+            reanudacion: p.hora_reanudacion || 'ABIERTA',
+            motivo: p.motivo,
+          }));
+        console.log('[DEBUG SOSPECHOSO]', {
           tecnico: tec,
           servicio: nombreSrv,
           num_orden: s.num_orden,
@@ -1665,18 +1679,17 @@ const Admin = {
           hora_inicio: s.hora_inicio,
           hora_fin: s.hora_fin,
           minutosCalculados: minutosServicio,
+          pausas: todasLasPausas,
           intervalosOriginales: intervalos.map(i => ({
             ini: i.ini.toISOString(),
             fin: i.fin.toISOString(),
             durMin: Math.round((i.fin - i.ini) / 60000),
           })),
-          intervalosAcotadosAlRango: intervalosRango.map(i => ({
+          intervalosAcotados: intervalosRango.map(i => ({
             ini: i.ini.toISOString(),
             fin: i.fin.toISOString(),
             durMin: Math.round((i.fin - i.ini) / 60000),
           })),
-          rangoIni: rangoIni.toISOString(),
-          rangoFin: rangoFin.toISOString(),
         });
       }
 
