@@ -33,33 +33,57 @@
 
     <!-- ============= BÚSQUEDA ============= -->
     <section class="card hist-busqueda">
-      <div class="hist-tipo-chips" role="tablist" aria-label="Tipo de búsqueda">
-        <button class="hist-chip hist-chip-active" data-tipo="placa" role="tab" aria-selected="true">🚗 Placa</button>
-        <button class="hist-chip" data-tipo="orden" role="tab" aria-selected="false">📋 Nº Orden</button>
-        <button class="hist-chip" data-tipo="tecnico" role="tab" aria-selected="false">👤 Técnico</button>
-        <button class="hist-chip" data-tipo="servicio" role="tab" aria-selected="false">🔧 Servicio</button>
-      </div>
-
-      <!-- Input de texto (placa, orden) o combobox (tecnico, servicio) según tipo -->
-      <input
-        type="search"
-        id="hist-search-input"
-        class="field-input hist-search-input"
-        placeholder="Ej: TAXI 7036"
-        autocomplete="off"
-        autofocus
-      />
-
-      <!-- Combobox con búsqueda — usado para técnico y servicio -->
-      <div class="hist-combobox" id="hist-combobox" hidden>
-        <div class="hist-combo-trigger" id="hist-combo-trigger" tabindex="0" role="combobox" aria-expanded="false">
-          <span class="hist-combo-text" id="hist-combo-text">Selecciona…</span>
-          <span class="hist-combo-clear" id="hist-combo-clear" hidden title="Limpiar">×</span>
-          <span class="hist-combo-arrow">▼</span>
+      <div class="hist-filtros-grid">
+        <!-- Placa -->
+        <div class="hist-filtro-campo">
+          <label class="hist-filtro-label-mini">🚗 Placa</label>
+          <div class="hist-input-wrap">
+            <input type="search" id="hist-input-placa" class="field-input hist-search-input"
+                   placeholder="Ej: TAXI 7036" autocomplete="off" />
+            <span class="hist-input-clear" data-clear="placa" hidden>×</span>
+          </div>
         </div>
-        <div class="hist-combo-panel" id="hist-combo-panel" hidden>
-          <input type="text" class="hist-combo-search" id="hist-combo-search" placeholder="Filtrar..." autocomplete="off" />
-          <div class="hist-combo-list" id="hist-combo-list" role="listbox"></div>
+
+        <!-- Número de orden -->
+        <div class="hist-filtro-campo">
+          <label class="hist-filtro-label-mini">📋 N° Orden</label>
+          <div class="hist-input-wrap">
+            <input type="search" id="hist-input-orden" class="field-input hist-search-input"
+                   placeholder="Ej: OT-0008" autocomplete="off" />
+            <span class="hist-input-clear" data-clear="orden" hidden>×</span>
+          </div>
+        </div>
+
+        <!-- Técnico (combobox) -->
+        <div class="hist-filtro-campo">
+          <label class="hist-filtro-label-mini">👤 Técnico</label>
+          <div class="hist-combobox" data-combo="tecnico">
+            <div class="hist-combo-trigger" tabindex="0" role="combobox" aria-expanded="false">
+              <span class="hist-combo-text is-placeholder">Cualquiera</span>
+              <span class="hist-combo-clear" data-clear-combo="tecnico" hidden title="Limpiar">×</span>
+              <span class="hist-combo-arrow">▼</span>
+            </div>
+            <div class="hist-combo-panel" hidden>
+              <input type="text" class="hist-combo-search" placeholder="Filtrar técnicos..." autocomplete="off" />
+              <div class="hist-combo-list" role="listbox"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Servicio (combobox) -->
+        <div class="hist-filtro-campo">
+          <label class="hist-filtro-label-mini">🔧 Servicio</label>
+          <div class="hist-combobox" data-combo="servicio">
+            <div class="hist-combo-trigger" tabindex="0" role="combobox" aria-expanded="false">
+              <span class="hist-combo-text is-placeholder">Cualquiera</span>
+              <span class="hist-combo-clear" data-clear-combo="servicio" hidden title="Limpiar">×</span>
+              <span class="hist-combo-arrow">▼</span>
+            </div>
+            <div class="hist-combo-panel" hidden>
+              <input type="text" class="hist-combo-search" placeholder="Filtrar servicios..." autocomplete="off" />
+              <div class="hist-combo-list" role="listbox"></div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -86,7 +110,7 @@
           </select>
         </label>
 
-        <button type="button" class="hist-btn-limpiar" id="hist-btn-limpiar">Limpiar</button>
+        <button type="button" class="hist-btn-limpiar" id="hist-btn-limpiar">Limpiar todo</button>
       </div>
     </section>
 
@@ -381,35 +405,51 @@
       color: var(--text-muted, #8b94a3);
     }
 
-    .hist-tipo-chips {
+    /* Grid de los 4 filtros principales (placa/orden/tecnico/servicio) */
+    .hist-filtros-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+    }
+    .hist-filtro-campo {
       display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
+      flex-direction: column;
+      gap: 4px;
     }
-    .hist-chip {
-      flex: 1 1 auto;
-      min-width: 110px;
-      padding: 10px 14px;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 8px;
+    .hist-filtro-label-mini {
+      font-size: 0.72rem;
       color: var(--text-muted, #8b94a3);
-      font-size: 0.85rem;
       font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .hist-input-wrap {
+      position: relative;
+    }
+    .hist-input-clear {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 22px;
+      height: 22px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,255,255,0.10);
+      border-radius: 50%;
+      color: var(--text-muted, #8b94a3);
+      font-size: 1.1rem;
       cursor: pointer;
-      transition: all 0.15s;
-      font-family: inherit;
-      text-align: center;
+      transition: background 0.15s, color 0.15s;
+      user-select: none;
     }
-    .hist-chip:hover {
-      background: rgba(255,255,255,0.08);
-      color: var(--text, #e6e9ef);
+    .hist-input-clear:hover {
+      background: rgba(220, 53, 69, 0.20);
+      color: var(--rojo-urgente, #dc3545);
     }
-    .hist-chip.hist-chip-active {
-      background: linear-gradient(180deg, #2f7fe0, #2563c4);
-      color: #fff;
-      border-color: #2f7fe0;
-      box-shadow: 0 2px 8px rgba(47, 127, 224, 0.3);
+    .hist-input-wrap .hist-search-input {
+      padding-right: 36px;
     }
 
     .hist-search-input {
@@ -752,8 +792,6 @@
     /* Mobile */
     @media (max-width: 600px) {
       .hist-main { padding: 10px; }
-      .hist-tipo-chips { gap: 6px; }
-      .hist-chip { min-width: 0; padding: 8px 10px; font-size: 0.78rem; }
       .hist-orden-header { padding: 12px 14px; }
       .hist-orden-meta { gap: 8px; font-size: 0.75rem; }
       .hist-orden-detalle { padding: 0 14px 14px; }
