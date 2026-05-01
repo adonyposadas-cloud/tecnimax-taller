@@ -204,6 +204,17 @@
       display: flex;
       flex-direction: column;
       gap: 14px;
+      /* FIX: el dropdown del combobox usa position:absolute. Sin esto, el
+         padre .card recorta el panel cuando se desborda hacia abajo o queda
+         tapado por la siguiente sección. */
+      overflow: visible;
+      position: relative;
+      z-index: 5;
+    }
+    /* Cuando un combobox está abierto, su contenedor sube por encima del resto
+       para que el panel desplegado no quede oculto por filas siguientes. */
+    .hist-combobox:has(.hist-combo-trigger.is-open) {
+      z-index: 60;
     }
 
     /* ===== Combobox con búsqueda (técnico / servicio) ===== */
@@ -271,7 +282,7 @@
       border: 1px solid rgba(47, 127, 224, 0.40);
       border-radius: 8px;
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-      z-index: 50;
+      z-index: 100;
       max-height: 320px;
       display: flex;
       flex-direction: column;
