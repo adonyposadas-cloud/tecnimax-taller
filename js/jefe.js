@@ -600,13 +600,17 @@ Disponibles para tomar.`;
     const totalServ = orden.servicios_orden?.length || 0;
     const completados = orden.servicios_orden?.filter(s => s.estado === 'completado').length || 0;
 
-    const progresoBadge = totalServ === 0
-      ? '<span class="badge">—</span>'
-      : completados === totalServ
-        ? `<span class="badge badge-success">${completados}/${totalServ}</span>`
-        : completados > 0
-          ? `<span class="badge badge-info">${completados}/${totalServ}</span>`
-          : `<span class="badge">${completados}/${totalServ}</span>`;
+    // Contador con colores semánticos (igual que la vista del técnico):
+    //   verde = completados, rojo = total. Mucho más fácil de leer de un
+    //   vistazo que un badge plano.
+    let progresoBadge;
+    if (totalServ === 0) {
+      progresoBadge = '<span class="badge">—</span>';
+    } else {
+      progresoBadge = `<span class="contador-progreso">
+        <span class="contador-completados">${completados}</span><span class="contador-sep">/</span><span class="contador-total">${totalServ}</span>
+      </span>`;
+    }
 
     let estadoBadge;
     if (orden.estado === 'cancelada') {
