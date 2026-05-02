@@ -282,6 +282,41 @@
     }
     .order-row.row-cancelada {
       opacity: 0.55;
+      border-left: 3px solid rgba(140, 140, 140, 0.5);
+    }
+
+    /* ===== FILA URGENTE — destacar visualmente como en la vista del técnico =====
+       Borde izquierdo grueso rojo + fondo levemente teñido. Mucho más fácil
+       de identificar de un vistazo que un simple badge a la derecha. */
+    .order-row.row-urgente {
+      border-left: 4px solid var(--rojo-urgente, #dc3545);
+      background: rgba(220, 53, 69, 0.06);
+    }
+    .order-row.row-urgente:hover {
+      background: rgba(220, 53, 69, 0.10);
+    }
+
+    /* ===== Contador de progreso estilo técnico (verde / rojo) =====
+       Verde = completados, rojo = total. Permite leer "5/7" como "5 hechos
+       de 7 totales" sin pensar. Reemplaza al badge plano anterior. */
+    .contador-progreso {
+      display: inline-flex;
+      align-items: center;
+      gap: 1px;
+      font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace);
+      font-weight: 700;
+      font-size: 0.95rem;
+      letter-spacing: 0.5px;
+    }
+    .contador-completados {
+      color: var(--verde-ok, #28a745);
+    }
+    .contador-sep {
+      color: var(--text-muted, #8b94a3);
+      margin: 0 1px;
+    }
+    .contador-total {
+      color: var(--rojo-urgente, #dc3545);
     }
 
     /* ===== Botón Ver tablero ===== */
