@@ -699,6 +699,28 @@ const Admin = {
           .update({ estado: 'pausado' })
           .in('id', idsServicios);
         if (errUpd) throw errUpd;
+      } else if (pausasAbiertas.length > 0) {
+        // ====================================================================
+        // FIX (Aprovech. progresivo): si solo había pausas abiertas (servicios
+        // ya pausados manualmente) y NO había servicios en_progreso, igual
+        // necesitamos un marcador de "cierre de día" para que la métrica de
+        // Aprovechamiento sepa a qué hora se cerró la jornada y congele el
+        // divisor progresivo. Creamos UNA pausa marcador (hora_pausa =
+        // hora_reanudacion = ahora, 0 min reales) ligada al primer servicio
+        // pausado del lote. No afecta tiempos calculados.
+        // ====================================================================
+        const primera = pausasAbiertas[0];
+        const marcador = {
+          servicio_orden_id: primera.servicio_orden_id,
+          tecnico_id: primera.tecnico_id,
+          hora_pausa: ahora,
+          hora_reanudacion: ahora,
+          motivo: 'cierre_dia',
+        };
+        const { error: errMarcador } = await supabaseClient
+          .from('historial_pausas')
+          .insert(marcador);
+        if (errMarcador) throw errMarcador;
       }
 
       Utils.log(`Cerrado día masivo: ${pausasAbiertas.length} pausas + ${serviciosActivos.length} en_progreso por ${rol}`);
@@ -1805,36 +1827,91 @@ const Admin = {
     // ========================================================================
     // FASE 3: Aprovechamiento = T. ACTIVO / Jornada pagada del rango
     //
-    // La jornada pagada se calcula como: 8h × cantidad de días hábiles
-    // (lunes a sábado, sin domingos) que el rango cubre.
+    // La jornada pagada se calcula sumando los minutos pagados de cada día
+    // hábil (lun-sab) que el rango cubre:
     //
-    // Ejemplos:
-    //   - Filtro "Hoy" (lunes) → 480 min de jornada
-    //   - Filtro "Día 30/04" → 480 min
-    //   - Filtro "Esta semana" (lun-sab) → 6 × 480 = 2880 min
-    //   - Filtro "Este mes" → ~26 días × 480 = 12480 min
+    //   - Días pasados: 480 min cada uno (jornada completa de 8h)
+    //   - Día de HOY: minutos PROGRESIVOS según hora actual o hora de cierre.
+    //     Si el día ya se cerró con el botón (existe pausa motivo='cierre_dia'
+    //     hoy), se usa esa hora como referencia y el divisor queda congelado.
+    //   - Días futuros: 0 min (no aportan)
     //
-    // Esto da una métrica de "cuánto del tiempo pagado fue productivo".
+    // Tabla de bloques pagados acumulados según hora (referencia floor a la hora):
+    //   < 9:00 → 1   (mínimo, evita división por 0)
+    //   9-12   → 1, 2, 3, 4
+    //   13:00  → 4   (almuerzo: no avanza)
+    //   14-17  → 5, 6, 7, 8
+    //   ≥ 17   → 8   (tope, jornada completa)
+    //
+    // Ej.: si cierran a las 3:30 PM, floor=15 → bloques=6 → divisor=360 min.
+    //      si cierran a las 5:30 PM, floor=17 → bloques=8 → divisor=480 min.
     // ========================================================================
     const JORNADA_MIN = this.CONFIG_HORARIO_LABORAL.JORNADA_PAGADA_MIN;
 
-    // Contar días hábiles entre rangoIni y rangoFin (lun-sab, sin domingos).
-    // Si querés excluir también sábados, cambiá la condición.
-    const contarDiasHabiles = () => {
-      let dias = 0;
+    // Helper: dado una hora del día (Date), devuelve los bloques pagados
+    // acumulados (1..8) según la regla progresiva descrita arriba.
+    const bloquesPagadosAHora = (fechaRef) => {
+      const horaFloor = fechaRef.getHours(); // truncado a hora completa
+      let bloques;
+      if (horaFloor < 9) bloques = 1;
+      else if (horaFloor < 13) bloques = horaFloor - 8;   // 9→1 ... 12→4
+      else if (horaFloor === 13) bloques = 4;             // 13:xx = almuerzo
+      else bloques = horaFloor - 9;                       // 14→5 ... 17→8
+      return Math.min(8, Math.max(1, bloques));
+    };
+
+    // Helper: minutos pagados del día de HOY. Si hubo cierre de día
+    // (pausa motivo='cierre_dia' hoy), congela en esa hora; si no, usa ahora.
+    const minutosPagadosHoy = () => {
+      const hoyIni = new Date();
+      hoyIni.setHours(0, 0, 0, 0);
+      const hoyFin = new Date();
+      hoyFin.setHours(23, 59, 59, 999);
+
+      // Buscar el cierre de día más reciente registrado hoy
+      let referencia = null;
+      (this.state.pausas || []).forEach(p => {
+        if (p.motivo !== 'cierre_dia' || !p.hora_pausa) return;
+        const hp = new Date(p.hora_pausa);
+        if (hp >= hoyIni && hp <= hoyFin) {
+          if (!referencia || hp > referencia) referencia = hp;
+        }
+      });
+
+      // Si no hay cierre, usar ahora (cálculo progresivo en vivo)
+      if (!referencia) referencia = new Date();
+
+      return bloquesPagadosAHora(referencia) * 60;
+    };
+
+    // Calcular jornada pagada del rango sumando día por día
+    const calcularJornadaPagadaRango = () => {
+      const hoyIni = new Date();
+      hoyIni.setHours(0, 0, 0, 0);
+
+      let totalMin = 0;
       const cursor = new Date(rangoIni);
       cursor.setHours(0, 0, 0, 0);
       const fin = new Date(rangoFin);
+
       while (cursor <= fin) {
         const diaSemana = cursor.getDay(); // 0=domingo
-        if (diaSemana !== 0) dias += 1;
+        if (diaSemana !== 0) {
+          if (cursor.getTime() < hoyIni.getTime()) {
+            // Día pasado: jornada completa
+            totalMin += JORNADA_MIN;
+          } else if (cursor.getTime() === hoyIni.getTime()) {
+            // Día actual: progresivo (con o sin cierre)
+            totalMin += minutosPagadosHoy();
+          }
+          // Días futuros: no suman
+        }
         cursor.setDate(cursor.getDate() + 1);
       }
-      return Math.max(1, dias); // mínimo 1 para evitar división por cero
+      return Math.max(60, totalMin); // mínimo 1h para evitar división por 0
     };
 
-    const diasHabilesRango = contarDiasHabiles();
-    const jornadaPagadaMin = JORNADA_MIN * diasHabilesRango;
+    const jornadaPagadaMin = calcularJornadaPagadaRango();
 
     Object.values(stats).forEach(st => {
       if (st.servicios > 0 && jornadaPagadaMin > 0) {
