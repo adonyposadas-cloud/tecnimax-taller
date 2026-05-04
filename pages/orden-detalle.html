@@ -635,7 +635,48 @@
   <div id="foto-lightbox" class="foto-lightbox" hidden>
     <div class="foto-lightbox-backdrop" id="foto-lightbox-backdrop"></div>
     <button class="foto-lightbox-close" id="foto-lightbox-close" aria-label="Cerrar">✕</button>
-    <img id="foto-lightbox-img" src="" alt="Foto del servicio" />
+    <div class="foto-lightbox-contenido">
+      <img id="foto-lightbox-img" src="" alt="Foto del servicio" />
+      <div class="foto-lightbox-nota-wrap" id="foto-lightbox-nota-wrap">
+        <div class="foto-lightbox-nota-header">
+          <span class="foto-lightbox-nota-label">📝 Nota</span>
+          <button class="foto-lightbox-btn-mini" id="foto-lightbox-btn-editar" type="button">Editar</button>
+        </div>
+        <div class="foto-lightbox-nota-texto" id="foto-lightbox-nota-texto">— Sin nota —</div>
+        <div class="foto-lightbox-nota-edit-wrap" id="foto-lightbox-nota-edit-wrap" hidden>
+          <textarea id="foto-lightbox-nota-textarea" class="foto-lightbox-nota-textarea" rows="3" placeholder="Escribe una nota sobre esta foto..."></textarea>
+          <div class="foto-lightbox-nota-acciones">
+            <button class="foto-lightbox-btn-mini foto-lightbox-btn-secondary" id="foto-lightbox-btn-cancelar" type="button">Cancelar</button>
+            <button class="foto-lightbox-btn-mini foto-lightbox-btn-primary" id="foto-lightbox-btn-guardar" type="button">Guardar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: Agregar nota al subir foto (Fase Fotos) ============= -->
+  <div id="modal-foto-nota" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">Foto <span id="foto-nota-tipo-label" class="modal-foto-nota-tipo">ANTES</span></h2>
+      </header>
+      <div class="modal-body">
+        <div class="modal-foto-nota-preview-wrap">
+          <img id="foto-nota-preview" class="modal-foto-nota-preview" src="" alt="Vista previa" />
+        </div>
+        <div class="field">
+          <label for="foto-nota-textarea">Nota (opcional)</label>
+          <textarea id="foto-nota-textarea" class="modal-foto-nota-textarea" rows="3"
+                    placeholder="Ej: rayón en parachoques izquierdo, fuga aceite..."></textarea>
+          <p class="modal-foto-nota-hint">Puedes dejarlo vacío y subir la foto sin nota.</p>
+        </div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-foto-nota-cancelar">Cancelar</button>
+        <button type="button" class="btn-start" id="btn-foto-nota-confirmar">Subir foto</button>
+      </footer>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
