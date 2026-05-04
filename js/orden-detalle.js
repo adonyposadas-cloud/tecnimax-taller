@@ -36,6 +36,9 @@ const OrdenDetalle = {
     gruposWhatsapp: {}, // Cache de grupos {codigo: {nombre, invite_link}} (Fase 5b)
     waToastTimer: null,
     fotos: [],         // Fotos de los servicios (Fase Fotos)
+    fotosExpandidas: new Set(),  // ids de servicios con galería de fotos expandida
+    fotoEnEdicion: null,         // {id, nota_actual} cuando se edita la nota desde lightbox
+    fotoNotaPendiente: null,     // {sid, tipo, file} mientras el modal de nota está abierto
   },
 
   // ==================== INIT ====================
@@ -399,7 +402,7 @@ Hora: ${this.fmtHora()}`;
     try {
       const { data, error } = await supabaseClient
         .from('fotos_servicio')
-        .select('id, servicio_orden_id, tipo, storage_path, subida_por, subida_en, tamano_bytes')
+        .select('id, servicio_orden_id, tipo, storage_path, subida_por, subida_en, tamano_bytes, notas')
         .in('servicio_orden_id', ids)
         .order('subida_en', { ascending: true });
       if (error) throw error;
@@ -474,7 +477,7 @@ Hora: ${this.fmtHora()}`;
    * Sube una foto: la comprime, la sube al storage y registra la metadata.
    * Estructura del path: {numOrden}/{servicioId}/{tipo}/{timestamp}.jpg
    */
-  async subirFoto(servicioId, tipo, file) {
+  async subirFoto(servicioId, tipo, file, nota = null) {
     const blob = await this.comprimirImagen(file);
     const ts = Date.now();
     // Sanitizar numOrden por si tiene caracteres raros
@@ -493,6 +496,7 @@ Hora: ${this.fmtHora()}`;
     if (uploadError) throw uploadError;
 
     // 2. Insertar metadata
+    const notaLimpia = (nota || '').trim();
     const { error: dbError } = await supabaseClient
       .from('fotos_servicio')
       .insert({
@@ -501,6 +505,7 @@ Hora: ${this.fmtHora()}`;
         storage_path: path,
         subida_por: this.state.profile.id,
         tamano_bytes: blob.size,
+        notas: notaLimpia || null,
       });
     if (dbError) {
       // Si falló el insert, limpiar el storage para no dejar huérfanos
@@ -510,7 +515,7 @@ Hora: ${this.fmtHora()}`;
   },
 
   /**
-   * Maneja el flujo completo de subida: validación, overlay, error.
+   * Maneja el flujo completo de subida: validación + modal de nota opcional + upload.
    */
   async handleFotoUpload(sid, tipo, file) {
     if (!file) return;
@@ -525,11 +530,63 @@ Hora: ${this.fmtHora()}`;
       return;
     }
 
+    // Mostrar modal de nota opcional con preview de la foto
+    this.abrirModalNotaFoto(sid, tipo, file);
+  },
+
+  /**
+   * Abre modal con preview de la foto y campo de nota opcional.
+   * Al confirmar, ejecuta el upload real.
+   */
+  abrirModalNotaFoto(sid, tipo, file) {
+    const modal = document.getElementById('modal-foto-nota');
+    if (!modal) return;
+
+    // Preview de la imagen
+    const previewImg = document.getElementById('foto-nota-preview');
+    const reader = new FileReader();
+    reader.onload = (e) => { if (previewImg) previewImg.src = e.target.result; };
+    reader.readAsDataURL(file);
+
+    // Configurar el modal
+    document.getElementById('foto-nota-tipo-label').textContent = tipo === 'antes' ? 'ANTES' : 'DESPUÉS';
+    const textarea = document.getElementById('foto-nota-textarea');
+    if (textarea) textarea.value = '';
+
+    // Guardar contexto para usar al confirmar
+    this.state.fotoNotaPendiente = { sid, tipo, file };
+
+    modal.hidden = false;
+    setTimeout(() => textarea && textarea.focus(), 100);
+  },
+
+  /** Cierra el modal de nota sin subir. */
+  cerrarModalNotaFoto() {
+    const modal = document.getElementById('modal-foto-nota');
+    if (modal) modal.hidden = true;
+    this.state.fotoNotaPendiente = null;
+    const previewImg = document.getElementById('foto-nota-preview');
+    if (previewImg) previewImg.src = '';
+  },
+
+  /** Confirma y ejecuta el upload con la nota (o sin ella). */
+  async confirmarSubirFotoConNota() {
+    const ctx = this.state.fotoNotaPendiente;
+    if (!ctx) return;
+
+    const { sid, tipo, file } = ctx;
+    const textarea = document.getElementById('foto-nota-textarea');
+    const nota = textarea ? textarea.value : '';
+
+    this.cerrarModalNotaFoto();
+
     const card = document.querySelector(`.servicio-card[data-sid="${sid}"]`);
     if (card) card.classList.add('foto-subiendo');
 
     try {
-      await this.subirFoto(sid, tipo, file);
+      await this.subirFoto(sid, tipo, file, nota);
+      // Asegurar que el bloque queda expandido tras subir
+      this.state.fotosExpandidas.add(sid);
       await this.cargarFotos();
       this.render();
     } catch (err) {
@@ -569,8 +626,9 @@ Hora: ${this.fmtHora()}`;
   },
 
   /**
-   * Renderiza la galería de fotos para un servicio (antes/después).
-   * Devuelve string vacío si no hay fotos ni se pueden subir.
+   * Renderiza el bloque de fotos para un servicio.
+   * Por defecto muestra solo el botón "📷 Fotos (N)" colapsado.
+   * Al expandir muestra los bloques antes/después con miniaturas y botones.
    */
   renderFotosServicio(s) {
     const fotos = (this.state.fotos || []).filter(f => f.servicio_orden_id === s.id);
@@ -583,10 +641,7 @@ Hora: ${this.fmtHora()}`;
     const esTecnico = rol === 'tecnico';
     const esJefe = rol === 'jefe_pista' || rol === 'admin';
 
-    // Reglas de subida:
-    //  - Jefe/Admin: pueden subir antes/después siempre que la orden no esté completada
-    //  - Técnico: solo si el servicio es suyo y está activo (en_progreso o pausado),
-    //             o si es la "antes" en pendiente que aún no inicia.
+    // Reglas de subida (mismas que antes)
     const ordenViva = this.state.orden &&
       this.state.orden.estado !== 'completada' &&
       this.state.orden.estado !== 'cancelada';
@@ -601,23 +656,47 @@ Hora: ${this.fmtHora()}`;
       puedeSubirAntes  = ['pendiente','en_progreso','pausado'].includes(s.estado);
       puedeSubirDespues = ['en_progreso','pausado','completado'].includes(s.estado);
     } else if (esTecnico && !esMio && s.estado === 'pendiente' && ordenViva) {
-      // Aún no se asignó a nadie, cualquier técnico puede agregar foto "antes"
       puedeSubirAntes = true;
     }
 
-    // Si no hay nada que mostrar, ocultar bloque
+    // Si no hay nada que mostrar, ocultar bloque entero
     if (fotos.length === 0 && !puedeSubirAntes && !puedeSubirDespues) return '';
 
+    const expandido = this.state.fotosExpandidas.has(s.id);
+    const totalFotos = fotos.length;
+
+    // Botón toggle (siempre visible)
+    let html = `
+      <div class="fotos-bloque ${expandido ? 'fotos-expandido' : ''}">
+        <button class="fotos-toggle" data-foto-action="toggle" data-sid="${s.id}" type="button">
+          <span class="fotos-toggle-label">📷 Fotos <span class="fotos-toggle-count">(${totalFotos})</span></span>
+          <span class="fotos-toggle-arrow">${expandido ? '▼' : '▶'}</span>
+        </button>`;
+
+    // Si NO está expandido, terminamos aquí (rendering mínimo)
+    if (!expandido) {
+      html += '</div>';
+      return html;
+    }
+
+    // === EXPANDIDO: render completo de antes/después ===
     const renderThumb = (f) => {
       const url = f.url || '';
       const safeUrl = Utils.escapeHtml(url);
       const safePath = Utils.escapeHtml(f.storage_path || '');
+      const tieneNota = f.notas && f.notas.trim().length > 0;
+      const safeNota = Utils.escapeHtml(f.notas || '');
       const eliminarBtn = esJefe
         ? `<button class="foto-eliminar" data-foto-action="eliminar" data-foto-id="${f.id}" data-foto-path="${safePath}" title="Eliminar foto">×</button>`
         : '';
+      // Indicador de nota en la esquina inferior izq
+      const notaIndicador = tieneNota
+        ? `<span class="foto-nota-badge" title="Tiene nota">📝</span>`
+        : '';
       return `
-        <div class="foto-thumbnail" data-foto-action="ver" data-foto-url="${safeUrl}">
+        <div class="foto-thumbnail" data-foto-action="ver" data-foto-id="${f.id}" data-foto-url="${safeUrl}" data-foto-nota="${safeNota}">
           ${url ? `<img src="${safeUrl}" alt="Foto" loading="lazy" />` : '<div class="foto-loading">⏳</div>'}
+          ${notaIndicador}
           ${eliminarBtn}
         </div>`;
     };
@@ -630,11 +709,10 @@ Hora: ${this.fmtHora()}`;
         <span class="foto-btn-label">Agregar</span>
       </label>`;
 
-    // Solo mostramos un bloque (antes/después) si tiene fotos o se puede subir ahí
     const mostrarAntes = fotosAntes.length > 0 || puedeSubirAntes;
     const mostrarDespues = fotosDespues.length > 0 || puedeSubirDespues;
 
-    let html = '<div class="fotos-galeria">';
+    html += '<div class="fotos-galeria">';
 
     if (mostrarAntes) {
       html += `
@@ -664,7 +742,7 @@ Hora: ${this.fmtHora()}`;
         </div>`;
     }
 
-    html += '</div>';
+    html += '</div></div>'; // cierra .fotos-galeria y .fotos-bloque
     return html;
   },
 
@@ -682,11 +760,21 @@ Hora: ${this.fmtHora()}`;
       });
     });
 
-    // Click en miniaturas / botón eliminar
+    // Click en miniaturas / botón eliminar / toggle de fotos
     cont.querySelectorAll('[data-foto-action]').forEach(el => {
       el.addEventListener('click', (e) => {
         const action = el.dataset.fotoAction;
-        if (action === 'eliminar') {
+        if (action === 'toggle') {
+          // Expandir/colapsar el bloque de fotos del servicio
+          e.stopPropagation();
+          const sid = parseInt(el.dataset.sid, 10);
+          if (this.state.fotosExpandidas.has(sid)) {
+            this.state.fotosExpandidas.delete(sid);
+          } else {
+            this.state.fotosExpandidas.add(sid);
+          }
+          this.render();
+        } else if (action === 'eliminar') {
           e.stopPropagation();
           const fotoId = el.dataset.fotoId;
           const fotoPath = el.dataset.fotoPath;
@@ -695,18 +783,57 @@ Hora: ${this.fmtHora()}`;
           // Si el target real es el botón eliminar, no abrir el lightbox
           if (e.target.closest('[data-foto-action="eliminar"]')) return;
           const url = el.dataset.fotoUrl;
-          if (url) this.abrirLightbox(url);
+          const fotoId = el.dataset.fotoId;
+          const nota = el.dataset.fotoNota || '';
+          if (url) this.abrirLightbox(url, fotoId, nota);
         }
       });
     });
   },
 
-  /** Abre el lightbox con la foto a tamaño completo. */
-  abrirLightbox(url) {
+  /** Abre el lightbox con la foto a tamaño completo y permite ver/editar la nota. */
+  abrirLightbox(url, fotoId = null, nota = '') {
     const modal = document.getElementById('foto-lightbox');
     const img = document.getElementById('foto-lightbox-img');
     if (!modal || !img) return;
+
     img.src = url;
+
+    // Configurar la sección de nota (si tenemos id)
+    const notaWrap = document.getElementById('foto-lightbox-nota-wrap');
+    const notaTexto = document.getElementById('foto-lightbox-nota-texto');
+    const notaEditWrap = document.getElementById('foto-lightbox-nota-edit-wrap');
+    const notaTextarea = document.getElementById('foto-lightbox-nota-textarea');
+    const btnEditar = document.getElementById('foto-lightbox-btn-editar');
+    const btnGuardar = document.getElementById('foto-lightbox-btn-guardar');
+    const btnCancelar = document.getElementById('foto-lightbox-btn-cancelar');
+
+    if (notaWrap && fotoId) {
+      this.state.fotoEnEdicion = { id: fotoId, nota_actual: nota };
+
+      // Modo lectura (default)
+      notaWrap.hidden = false;
+      if (notaEditWrap) notaEditWrap.hidden = true;
+
+      if (notaTexto) {
+        if (nota && nota.trim().length > 0) {
+          notaTexto.textContent = nota;
+          notaTexto.classList.remove('foto-nota-vacia');
+        } else {
+          notaTexto.textContent = '— Sin nota —';
+          notaTexto.classList.add('foto-nota-vacia');
+        }
+      }
+
+      // Solo técnicos y jefes pueden editar
+      const rol = this.state.profile.rol;
+      const puedeEditar = rol === 'tecnico' || rol === 'jefe_pista' || rol === 'admin';
+      if (btnEditar) btnEditar.hidden = !puedeEditar;
+    } else if (notaWrap) {
+      notaWrap.hidden = true;
+      this.state.fotoEnEdicion = null;
+    }
+
     modal.hidden = false;
     document.body.style.overflow = 'hidden';
   },
@@ -719,6 +846,95 @@ Hora: ${this.fmtHora()}`;
     modal.hidden = true;
     if (img) img.src = '';
     document.body.style.overflow = '';
+    this.state.fotoEnEdicion = null;
+
+    // Resetear modo edición
+    const notaEditWrap = document.getElementById('foto-lightbox-nota-edit-wrap');
+    if (notaEditWrap) notaEditWrap.hidden = true;
+  },
+
+  /** Activa el modo edición de la nota en el lightbox. */
+  iniciarEdicionNota() {
+    const ctx = this.state.fotoEnEdicion;
+    if (!ctx) return;
+    const notaTexto = document.getElementById('foto-lightbox-nota-texto');
+    const notaEditWrap = document.getElementById('foto-lightbox-nota-edit-wrap');
+    const notaTextarea = document.getElementById('foto-lightbox-nota-textarea');
+    const btnEditar = document.getElementById('foto-lightbox-btn-editar');
+
+    if (notaTexto) notaTexto.hidden = true;
+    if (btnEditar) btnEditar.hidden = true;
+    if (notaEditWrap) notaEditWrap.hidden = false;
+    if (notaTextarea) {
+      notaTextarea.value = ctx.nota_actual || '';
+      setTimeout(() => notaTextarea.focus(), 50);
+    }
+  },
+
+  /** Cancela la edición y vuelve al modo lectura. */
+  cancelarEdicionNota() {
+    const notaTexto = document.getElementById('foto-lightbox-nota-texto');
+    const notaEditWrap = document.getElementById('foto-lightbox-nota-edit-wrap');
+    const btnEditar = document.getElementById('foto-lightbox-btn-editar');
+    if (notaTexto) notaTexto.hidden = false;
+    if (notaEditWrap) notaEditWrap.hidden = true;
+    if (btnEditar) {
+      const rol = this.state.profile.rol;
+      const puedeEditar = rol === 'tecnico' || rol === 'jefe_pista' || rol === 'admin';
+      btnEditar.hidden = !puedeEditar;
+    }
+  },
+
+  /** Guarda la nota editada. */
+  async guardarEdicionNota() {
+    const ctx = this.state.fotoEnEdicion;
+    if (!ctx) return;
+
+    const notaTextarea = document.getElementById('foto-lightbox-nota-textarea');
+    const nuevaNota = notaTextarea ? notaTextarea.value.trim() : '';
+
+    const btnGuardar = document.getElementById('foto-lightbox-btn-guardar');
+    if (btnGuardar) {
+      btnGuardar.disabled = true;
+      btnGuardar.textContent = 'Guardando...';
+    }
+
+    try {
+      const { error } = await supabaseClient
+        .from('fotos_servicio')
+        .update({ notas: nuevaNota || null })
+        .eq('id', ctx.id);
+      if (error) throw error;
+
+      // Actualizar state local
+      const f = this.state.fotos.find(x => x.id === ctx.id);
+      if (f) f.notas = nuevaNota || null;
+      ctx.nota_actual = nuevaNota;
+
+      // Actualizar UI del lightbox sin cerrarlo
+      const notaTexto = document.getElementById('foto-lightbox-nota-texto');
+      if (notaTexto) {
+        if (nuevaNota) {
+          notaTexto.textContent = nuevaNota;
+          notaTexto.classList.remove('foto-nota-vacia');
+        } else {
+          notaTexto.textContent = '— Sin nota —';
+          notaTexto.classList.add('foto-nota-vacia');
+        }
+      }
+      this.cancelarEdicionNota();
+
+      // Re-render para reflejar el badge 📝 en las miniaturas
+      this.render();
+    } catch (err) {
+      Utils.log('Error guardando nota:', err);
+      alert('No se pudo guardar la nota: ' + (err.message || ''));
+    } finally {
+      if (btnGuardar) {
+        btnGuardar.disabled = false;
+        btnGuardar.textContent = 'Guardar';
+      }
+    }
   },
 
   // ==================== HELPERS BUSINESS ====================
@@ -2549,6 +2765,20 @@ Hora: ${this.fmtHora()}`;
     const lbClose = document.getElementById('foto-lightbox-close');
     if (lbBackdrop) lbBackdrop.addEventListener('click', () => this.cerrarLightbox());
     if (lbClose) lbClose.addEventListener('click', () => this.cerrarLightbox());
+
+    // Botones de edición de nota dentro del lightbox
+    const btnEditarNota = document.getElementById('foto-lightbox-btn-editar');
+    const btnGuardarNota = document.getElementById('foto-lightbox-btn-guardar');
+    const btnCancelarNota = document.getElementById('foto-lightbox-btn-cancelar');
+    if (btnEditarNota) btnEditarNota.addEventListener('click', (e) => { e.stopPropagation(); this.iniciarEdicionNota(); });
+    if (btnGuardarNota) btnGuardarNota.addEventListener('click', (e) => { e.stopPropagation(); this.guardarEdicionNota(); });
+    if (btnCancelarNota) btnCancelarNota.addEventListener('click', (e) => { e.stopPropagation(); this.cancelarEdicionNota(); });
+
+    // Modal "agregar nota a foto" (antes de subir)
+    const modalNotaCancel = document.getElementById('btn-foto-nota-cancelar');
+    const modalNotaConfirm = document.getElementById('btn-foto-nota-confirmar');
+    if (modalNotaCancel) modalNotaCancel.addEventListener('click', () => this.cerrarModalNotaFoto());
+    if (modalNotaConfirm) modalNotaConfirm.addEventListener('click', () => this.confirmarSubirFotoConNota());
 
     // Cerrar lightbox con ESC (además del que ya existe para los modales)
     document.addEventListener('keydown', (e) => {
