@@ -30,6 +30,8 @@ const Historial = {
     serviciosCatalogo: [],
     pausas: [],
     cancelaciones: [],
+    fotos: [],            // Fotos de los servicios (Fase Fotos)
+    fotosUrls: {},        // Cache de URLs firmadas { storage_path: { url, expira_en } }
 
     // Filtros activos — TODOS combinables, AND lógico entre ellos
     filtros: {
@@ -330,7 +332,7 @@ const Historial = {
     document.getElementById('hist-empty').hidden = true;
 
     try {
-      const [ordenesR, serviciosR, usuariosR, catalogoR, cancR, pausasR] = await Promise.all([
+      const [ordenesR, serviciosR, usuariosR, catalogoR, cancR, pausasR, fotosR] = await Promise.all([
         // Órdenes con join al vehículo
         supabaseClient
           .from('ordenes')
@@ -364,6 +366,11 @@ const Historial = {
         supabaseClient
           .from('historial_pausas')
           .select('id, servicio_orden_id, tecnico_id, motivo, detalle_repuesto, hora_pausa, hora_reanudacion, pausado_por'),
+
+        // Fotos (Fase Fotos) — solo metadata; URLs firmadas se generan al expandir
+        supabaseClient
+          .from('fotos_servicio')
+          .select('id, servicio_orden_id, tipo, storage_path, subida_por, subida_en'),
       ]);
 
       if (ordenesR.error) throw ordenesR.error;
@@ -379,8 +386,9 @@ const Historial = {
       this.state.serviciosCatalogo = catalogoR.data || [];
       this.state.cancelaciones = (cancR && !cancR.error) ? (cancR.data || []) : [];
       this.state.pausas = pausasR.data || [];
+      this.state.fotos = (fotosR && !fotosR.error) ? (fotosR.data || []) : [];
 
-      Utils.log(`Historial cargado: ${this.state.ordenes.length} órdenes, ${this.state.servicios.length} servicios, ${this.state.pausas.length} pausas.`);
+      Utils.log(`Historial cargado: ${this.state.ordenes.length} órdenes, ${this.state.servicios.length} servicios, ${this.state.pausas.length} pausas, ${this.state.fotos.length} fotos.`);
     } catch (err) {
       Utils.log('Error cargando historial:', err);
       document.getElementById('hist-loading').innerHTML = `<p style="color: var(--rojo-urgente);">Error cargando datos: ${Utils.escapeHtml(err.message || '')}</p>`;
@@ -595,6 +603,15 @@ const Historial = {
       header.addEventListener('click', () => {
         const num = header.closest('.hist-orden-card').dataset.numOrden;
         this.toggleOrden(num);
+      });
+    });
+
+    // Bind clicks en miniaturas de fotos (Fase Fotos)
+    list.querySelectorAll('.hist-foto-thumb').forEach(thumb => {
+      thumb.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const url = thumb.dataset.fotoUrl;
+        if (url) this.abrirLightbox(url);
       });
     });
   },
@@ -837,6 +854,7 @@ const Historial = {
           ${inicio || fin ? `<div class="hist-servicio-tiempos">${inicio ? '▶ ' + inicio : ''}${fin ? ' → ⏹ ' + fin : ''}</div>` : ''}
           ${sospechoso ? `<div class="hist-servicio-sospechoso">⚠ Tiempo sospechoso${tiempoEsperado ? ` (esperado ~${tiempoEsperado} min)` : ''}</div>` : ''}
           ${s.observacion ? `<div class="hist-servicio-obs">"${Utils.escapeHtml(s.observacion)}"</div>` : ''}
+          ${this.renderFotosServicioHist(s)}
         </div>
         <div class="hist-servicio-tiempo-real">${tiempoTexto}</div>
       </div>
@@ -884,13 +902,140 @@ const Historial = {
   },
 
   // ==================== EXPAND / COLLAPSE ====================
-  toggleOrden(numOrden) {
+  async toggleOrden(numOrden) {
     if (this.state.ordenesExpandidas.has(numOrden)) {
       this.state.ordenesExpandidas.delete(numOrden);
     } else {
       this.state.ordenesExpandidas.add(numOrden);
+      // Generar URLs firmadas para las fotos de esta orden (si no las tenemos)
+      await this.cargarUrlsFotosOrden(numOrden);
     }
     this.aplicarFiltros();  // re-render
+  },
+
+  // ==================== FOTOS (Fase Fotos) ====================
+  /**
+   * Genera (en lote) URLs firmadas de 1h para las fotos de una orden.
+   * Se cachean en state.fotosUrls para evitar llamadas repetidas.
+   */
+  async cargarUrlsFotosOrden(numOrden) {
+    const serviciosOrden = this.state.servicios.filter(s => s.num_orden === numOrden);
+    const idsServ = new Set(serviciosOrden.map(s => s.id));
+    const fotosOrden = (this.state.fotos || []).filter(f => idsServ.has(f.servicio_orden_id));
+
+    if (fotosOrden.length === 0) return;
+
+    // Filtrar las que no tenemos en cache o están por vencer
+    const ahora = Date.now();
+    const pathsAGenerar = fotosOrden
+      .filter(f => {
+        const cached = this.state.fotosUrls[f.storage_path];
+        return !cached || cached.expira_en < ahora;
+      })
+      .map(f => f.storage_path);
+
+    if (pathsAGenerar.length === 0) return;
+
+    try {
+      const { data, error } = await supabaseClient
+        .storage
+        .from('fotos-servicios')
+        .createSignedUrls(pathsAGenerar, 3600);
+
+      if (error) {
+        Utils.log('Error firmando URLs de fotos:', error);
+        return;
+      }
+
+      (data || []).forEach(item => {
+        if (item.path) {
+          this.state.fotosUrls[item.path] = {
+            url: item.signedUrl,
+            expira_en: ahora + 3500 * 1000, // 5 seg de margen
+          };
+        }
+      });
+    } catch (err) {
+      Utils.log('Error inesperado firmando URLs:', err);
+    }
+  },
+
+  /** Devuelve el HTML de la galería de fotos de un servicio (read-only). */
+  renderFotosServicioHist(s) {
+    const fotos = (this.state.fotos || []).filter(f => f.servicio_orden_id === s.id);
+    if (fotos.length === 0) return '';
+
+    const fotosAntes = fotos.filter(f => f.tipo === 'antes');
+    const fotosDespues = fotos.filter(f => f.tipo === 'despues');
+
+    const renderThumb = (f) => {
+      const cached = this.state.fotosUrls[f.storage_path];
+      const url = cached ? cached.url : '';
+      const safeUrl = Utils.escapeHtml(url);
+      return `
+        <div class="hist-foto-thumb" data-foto-url="${safeUrl}">
+          ${url ? `<img src="${safeUrl}" alt="Foto" loading="lazy" />` : '<div class="hist-foto-loading">⏳</div>'}
+        </div>`;
+    };
+
+    let html = '<div class="hist-fotos">';
+
+    if (fotosAntes.length > 0) {
+      html += `
+        <div class="hist-fotos-grupo">
+          <div class="hist-fotos-label">📷 Antes (${fotosAntes.length})</div>
+          <div class="hist-fotos-row">${fotosAntes.map(renderThumb).join('')}</div>
+        </div>`;
+    }
+    if (fotosDespues.length > 0) {
+      html += `
+        <div class="hist-fotos-grupo">
+          <div class="hist-fotos-label">📷 Después (${fotosDespues.length})</div>
+          <div class="hist-fotos-row">${fotosDespues.map(renderThumb).join('')}</div>
+        </div>`;
+    }
+
+    html += '</div>';
+    return html;
+  },
+
+  /** Asegura que existe el lightbox en el DOM y bindea sus eventos. */
+  asegurarLightbox() {
+    if (document.getElementById('foto-lightbox')) return;
+    const lb = document.createElement('div');
+    lb.id = 'foto-lightbox';
+    lb.className = 'foto-lightbox';
+    lb.hidden = true;
+    lb.innerHTML = `
+      <div class="foto-lightbox-backdrop" id="foto-lightbox-backdrop"></div>
+      <button class="foto-lightbox-close" id="foto-lightbox-close" aria-label="Cerrar">✕</button>
+      <img id="foto-lightbox-img" src="" alt="Foto del servicio" />
+    `;
+    document.body.appendChild(lb);
+    document.getElementById('foto-lightbox-backdrop').addEventListener('click', () => this.cerrarLightbox());
+    document.getElementById('foto-lightbox-close').addEventListener('click', () => this.cerrarLightbox());
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this.cerrarLightbox();
+    });
+  },
+
+  abrirLightbox(url) {
+    this.asegurarLightbox();
+    const modal = document.getElementById('foto-lightbox');
+    const img = document.getElementById('foto-lightbox-img');
+    if (!modal || !img) return;
+    img.src = url;
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+  },
+
+  cerrarLightbox() {
+    const modal = document.getElementById('foto-lightbox');
+    const img = document.getElementById('foto-lightbox-img');
+    if (!modal) return;
+    modal.hidden = true;
+    if (img) img.src = '';
+    document.body.style.overflow = '';
   },
 
   // ==================== HELPERS ====================
