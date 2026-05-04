@@ -370,7 +370,7 @@ const Historial = {
         // Fotos (Fase Fotos) — solo metadata; URLs firmadas se generan al expandir
         supabaseClient
           .from('fotos_servicio')
-          .select('id, servicio_orden_id, tipo, storage_path, subida_por, subida_en'),
+          .select('id, servicio_orden_id, tipo, storage_path, subida_por, subida_en, notas'),
       ]);
 
       if (ordenesR.error) throw ordenesR.error;
@@ -611,7 +611,8 @@ const Historial = {
       thumb.addEventListener('click', (e) => {
         e.stopPropagation();
         const url = thumb.dataset.fotoUrl;
-        if (url) this.abrirLightbox(url);
+        const nota = thumb.dataset.fotoNota || '';
+        if (url) this.abrirLightbox(url, nota);
       });
     });
   },
@@ -972,9 +973,13 @@ const Historial = {
       const cached = this.state.fotosUrls[f.storage_path];
       const url = cached ? cached.url : '';
       const safeUrl = Utils.escapeHtml(url);
+      const tieneNota = f.notas && f.notas.trim().length > 0;
+      const safeNota = Utils.escapeHtml(f.notas || '');
+      const notaBadge = tieneNota ? `<span class="foto-nota-badge" title="Tiene nota">📝</span>` : '';
       return `
-        <div class="hist-foto-thumb" data-foto-url="${safeUrl}">
+        <div class="hist-foto-thumb" data-foto-url="${safeUrl}" data-foto-nota="${safeNota}">
           ${url ? `<img src="${safeUrl}" alt="Foto" loading="lazy" />` : '<div class="hist-foto-loading">⏳</div>'}
+          ${notaBadge}
         </div>`;
     };
 
@@ -1009,7 +1014,15 @@ const Historial = {
     lb.innerHTML = `
       <div class="foto-lightbox-backdrop" id="foto-lightbox-backdrop"></div>
       <button class="foto-lightbox-close" id="foto-lightbox-close" aria-label="Cerrar">✕</button>
-      <img id="foto-lightbox-img" src="" alt="Foto del servicio" />
+      <div class="foto-lightbox-contenido">
+        <img id="foto-lightbox-img" src="" alt="Foto del servicio" />
+        <div class="foto-lightbox-nota-wrap" id="foto-lightbox-nota-wrap" hidden>
+          <div class="foto-lightbox-nota-header">
+            <span class="foto-lightbox-nota-label">📝 Nota</span>
+          </div>
+          <div class="foto-lightbox-nota-texto" id="foto-lightbox-nota-texto"></div>
+        </div>
+      </div>
     `;
     document.body.appendChild(lb);
     document.getElementById('foto-lightbox-backdrop').addEventListener('click', () => this.cerrarLightbox());
@@ -1019,12 +1032,25 @@ const Historial = {
     });
   },
 
-  abrirLightbox(url) {
+  abrirLightbox(url, nota = '') {
     this.asegurarLightbox();
     const modal = document.getElementById('foto-lightbox');
     const img = document.getElementById('foto-lightbox-img');
     if (!modal || !img) return;
     img.src = url;
+
+    // Mostrar/ocultar nota (read-only en historial)
+    const notaWrap = document.getElementById('foto-lightbox-nota-wrap');
+    const notaTexto = document.getElementById('foto-lightbox-nota-texto');
+    if (notaWrap && notaTexto) {
+      if (nota && nota.trim().length > 0) {
+        notaTexto.textContent = nota;
+        notaWrap.hidden = false;
+      } else {
+        notaWrap.hidden = true;
+      }
+    }
+
     modal.hidden = false;
     document.body.style.overflow = 'hidden';
   },
