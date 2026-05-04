@@ -35,6 +35,7 @@ const OrdenDetalle = {
     alertasMtto: [],   // Alertas de mantenimiento del vehículo (Fase 4b)
     gruposWhatsapp: {}, // Cache de grupos {codigo: {nombre, invite_link}} (Fase 5b)
     waToastTimer: null,
+    fotos: [],         // Fotos de los servicios (Fase Fotos)
   },
 
   // ==================== INIT ====================
@@ -317,6 +318,7 @@ Hora: ${this.fmtHora()}`;
       await this.cargarPausas();
       await this.cargarTecnicos();
       await this.cargarAlertasMtto();
+      await this.cargarFotos();
       this.render();
     } catch (err) {
       Utils.log('Error cargando orden:', err);
@@ -381,6 +383,342 @@ Hora: ${this.fmtHora()}`;
       Utils.log('Error cargando técnicos:', err);
       this.state.tecnicos = {};
     }
+  },
+
+  // ==================== FOTOS (Fase Fotos) ====================
+  /**
+   * Carga las fotos asociadas a los servicios de la orden y genera las
+   * URLs firmadas (válidas 1 hora) para mostrar las miniaturas.
+   */
+  async cargarFotos() {
+    const ids = this.state.servicios.map(s => s.id);
+    if (ids.length === 0) {
+      this.state.fotos = [];
+      return;
+    }
+    try {
+      const { data, error } = await supabaseClient
+        .from('fotos_servicio')
+        .select('id, servicio_orden_id, tipo, storage_path, subida_por, subida_en, tamano_bytes')
+        .in('servicio_orden_id', ids)
+        .order('subida_en', { ascending: true });
+      if (error) throw error;
+
+      const fotos = data || [];
+      const paths = fotos.map(f => f.storage_path);
+
+      // Generar URLs firmadas en lote (1h)
+      let urlsMap = {};
+      if (paths.length > 0) {
+        const { data: signed, error: signErr } = await supabaseClient
+          .storage
+          .from('fotos-servicios')
+          .createSignedUrls(paths, 3600);
+        if (!signErr && Array.isArray(signed)) {
+          signed.forEach(item => {
+            if (item.path) urlsMap[item.path] = item.signedUrl;
+          });
+        } else if (signErr) {
+          Utils.log('Error firmando URLs:', signErr);
+        }
+      }
+
+      this.state.fotos = fotos.map(f => ({ ...f, url: urlsMap[f.storage_path] || null }));
+    } catch (err) {
+      Utils.log('Error cargando fotos:', err);
+      this.state.fotos = [];
+    }
+  },
+
+  /**
+   * Comprime una imagen en el navegador antes de subirla.
+   * Reduce a max 1280px de lado mayor y calidad JPEG 0.75.
+   * Una foto de cámara típica de 4MB queda en ~200-400KB.
+   */
+  async comprimirImagen(file, maxSize = 1280, quality = 0.75) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let { width, height } = img;
+          if (width > maxSize || height > maxSize) {
+            if (width > height) {
+              height = Math.round(height * maxSize / width);
+              width = maxSize;
+            } else {
+              width = Math.round(width * maxSize / height);
+              height = maxSize;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          canvas.toBlob(
+            blob => blob ? resolve(blob) : reject(new Error('No se pudo procesar la imagen')),
+            'image/jpeg',
+            quality
+          );
+        };
+        img.onerror = () => reject(new Error('No se pudo cargar la imagen'));
+        img.src = e.target.result;
+      };
+      reader.onerror = () => reject(new Error('No se pudo leer el archivo'));
+      reader.readAsDataURL(file);
+    });
+  },
+
+  /**
+   * Sube una foto: la comprime, la sube al storage y registra la metadata.
+   * Estructura del path: {numOrden}/{servicioId}/{tipo}/{timestamp}.jpg
+   */
+  async subirFoto(servicioId, tipo, file) {
+    const blob = await this.comprimirImagen(file);
+    const ts = Date.now();
+    // Sanitizar numOrden por si tiene caracteres raros
+    const ordenSafe = String(this.state.numOrden || 'sin-orden').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const path = `${ordenSafe}/${servicioId}/${tipo}/${ts}.jpg`;
+
+    // 1. Subir al bucket
+    const { error: uploadError } = await supabaseClient
+      .storage
+      .from('fotos-servicios')
+      .upload(path, blob, {
+        contentType: 'image/jpeg',
+        cacheControl: '3600',
+        upsert: false,
+      });
+    if (uploadError) throw uploadError;
+
+    // 2. Insertar metadata
+    const { error: dbError } = await supabaseClient
+      .from('fotos_servicio')
+      .insert({
+        servicio_orden_id: servicioId,
+        tipo: tipo,
+        storage_path: path,
+        subida_por: this.state.profile.id,
+        tamano_bytes: blob.size,
+      });
+    if (dbError) {
+      // Si falló el insert, limpiar el storage para no dejar huérfanos
+      await supabaseClient.storage.from('fotos-servicios').remove([path]).catch(() => {});
+      throw dbError;
+    }
+  },
+
+  /**
+   * Maneja el flujo completo de subida: validación, overlay, error.
+   */
+  async handleFotoUpload(sid, tipo, file) {
+    if (!file) return;
+
+    const MAX_INPUT = 10 * 1024 * 1024; // 10MB pre-compresión
+    if (!file.type || !file.type.startsWith('image/')) {
+      alert('El archivo no es una imagen.');
+      return;
+    }
+    if (file.size > MAX_INPUT) {
+      alert('La imagen es muy grande (máximo 10MB).');
+      return;
+    }
+
+    const card = document.querySelector(`.servicio-card[data-sid="${sid}"]`);
+    if (card) card.classList.add('foto-subiendo');
+
+    try {
+      await this.subirFoto(sid, tipo, file);
+      await this.cargarFotos();
+      this.render();
+    } catch (err) {
+      Utils.log('Error subiendo foto:', err);
+      alert('Error subiendo foto: ' + (err.message || 'Intenta de nuevo'));
+      if (card) card.classList.remove('foto-subiendo');
+    }
+  },
+
+  /**
+   * Confirma y elimina una foto (solo admin/jefe_pista por RLS).
+   */
+  async confirmarEliminarFoto(fotoId, fotoPath) {
+    if (!confirm('¿Eliminar esta foto? Esta acción no se puede deshacer.')) return;
+
+    try {
+      // 1. Borrar del storage (si falla, seguimos con el delete de metadata)
+      const { error: storageErr } = await supabaseClient
+        .storage
+        .from('fotos-servicios')
+        .remove([fotoPath]);
+      if (storageErr) Utils.log('Aviso: no se pudo borrar del storage:', storageErr);
+
+      // 2. Borrar metadata
+      const { error: dbErr } = await supabaseClient
+        .from('fotos_servicio')
+        .delete()
+        .eq('id', fotoId);
+      if (dbErr) throw dbErr;
+
+      await this.cargarFotos();
+      this.render();
+    } catch (err) {
+      Utils.log('Error eliminando foto:', err);
+      alert('No se pudo eliminar la foto: ' + (err.message || ''));
+    }
+  },
+
+  /**
+   * Renderiza la galería de fotos para un servicio (antes/después).
+   * Devuelve string vacío si no hay fotos ni se pueden subir.
+   */
+  renderFotosServicio(s) {
+    const fotos = (this.state.fotos || []).filter(f => f.servicio_orden_id === s.id);
+    const fotosAntes = fotos.filter(f => f.tipo === 'antes');
+    const fotosDespues = fotos.filter(f => f.tipo === 'despues');
+
+    const userId = this.state.profile.id;
+    const rol = this.state.profile.rol;
+    const esMio = s.tecnico_id === userId;
+    const esTecnico = rol === 'tecnico';
+    const esJefe = rol === 'jefe_pista' || rol === 'admin';
+
+    // Reglas de subida:
+    //  - Jefe/Admin: pueden subir antes/después siempre que la orden no esté completada
+    //  - Técnico: solo si el servicio es suyo y está activo (en_progreso o pausado),
+    //             o si es la "antes" en pendiente que aún no inicia.
+    const ordenViva = this.state.orden &&
+      this.state.orden.estado !== 'completada' &&
+      this.state.orden.estado !== 'cancelada';
+
+    let puedeSubirAntes = false;
+    let puedeSubirDespues = false;
+
+    if (esJefe && ordenViva) {
+      puedeSubirAntes = s.estado !== 'cancelado';
+      puedeSubirDespues = s.estado !== 'cancelado';
+    } else if (esTecnico && esMio && ordenViva) {
+      puedeSubirAntes  = ['pendiente','en_progreso','pausado'].includes(s.estado);
+      puedeSubirDespues = ['en_progreso','pausado','completado'].includes(s.estado);
+    } else if (esTecnico && !esMio && s.estado === 'pendiente' && ordenViva) {
+      // Aún no se asignó a nadie, cualquier técnico puede agregar foto "antes"
+      puedeSubirAntes = true;
+    }
+
+    // Si no hay nada que mostrar, ocultar bloque
+    if (fotos.length === 0 && !puedeSubirAntes && !puedeSubirDespues) return '';
+
+    const renderThumb = (f) => {
+      const url = f.url || '';
+      const safeUrl = Utils.escapeHtml(url);
+      const safePath = Utils.escapeHtml(f.storage_path || '');
+      const eliminarBtn = esJefe
+        ? `<button class="foto-eliminar" data-foto-action="eliminar" data-foto-id="${f.id}" data-foto-path="${safePath}" title="Eliminar foto">×</button>`
+        : '';
+      return `
+        <div class="foto-thumbnail" data-foto-action="ver" data-foto-url="${safeUrl}">
+          ${url ? `<img src="${safeUrl}" alt="Foto" loading="lazy" />` : '<div class="foto-loading">⏳</div>'}
+          ${eliminarBtn}
+        </div>`;
+    };
+
+    const renderBtnAdd = (tipo) => `
+      <label class="foto-btn-add">
+        <input type="file" accept="image/*" capture="environment" hidden
+               data-foto-input data-sid="${s.id}" data-tipo="${tipo}" />
+        <span class="foto-btn-icon">📷</span>
+        <span class="foto-btn-label">Agregar</span>
+      </label>`;
+
+    // Solo mostramos un bloque (antes/después) si tiene fotos o se puede subir ahí
+    const mostrarAntes = fotosAntes.length > 0 || puedeSubirAntes;
+    const mostrarDespues = fotosDespues.length > 0 || puedeSubirDespues;
+
+    let html = '<div class="fotos-galeria">';
+
+    if (mostrarAntes) {
+      html += `
+        <div class="fotos-tipo-bloque">
+          <div class="fotos-tipo-header">
+            <span class="fotos-tipo-label">📷 Antes</span>
+            <span class="fotos-tipo-count">${fotosAntes.length}</span>
+          </div>
+          <div class="fotos-row">
+            ${fotosAntes.map(renderThumb).join('')}
+            ${puedeSubirAntes ? renderBtnAdd('antes') : ''}
+          </div>
+        </div>`;
+    }
+
+    if (mostrarDespues) {
+      html += `
+        <div class="fotos-tipo-bloque">
+          <div class="fotos-tipo-header">
+            <span class="fotos-tipo-label">📷 Después</span>
+            <span class="fotos-tipo-count">${fotosDespues.length}</span>
+          </div>
+          <div class="fotos-row">
+            ${fotosDespues.map(renderThumb).join('')}
+            ${puedeSubirDespues ? renderBtnAdd('despues') : ''}
+          </div>
+        </div>`;
+    }
+
+    html += '</div>';
+    return html;
+  },
+
+  /** Engancha eventos de fotos en cada render de la lista de servicios. */
+  bindEventosFotos(cont) {
+    // Inputs file: subida
+    cont.querySelectorAll('[data-foto-input]').forEach(input => {
+      input.addEventListener('change', async (e) => {
+        const sid = parseInt(input.dataset.sid, 10);
+        const tipo = input.dataset.tipo;
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        await this.handleFotoUpload(sid, tipo, file);
+        input.value = ''; // reset para permitir subir misma foto otra vez
+      });
+    });
+
+    // Click en miniaturas / botón eliminar
+    cont.querySelectorAll('[data-foto-action]').forEach(el => {
+      el.addEventListener('click', (e) => {
+        const action = el.dataset.fotoAction;
+        if (action === 'eliminar') {
+          e.stopPropagation();
+          const fotoId = el.dataset.fotoId;
+          const fotoPath = el.dataset.fotoPath;
+          this.confirmarEliminarFoto(fotoId, fotoPath);
+        } else if (action === 'ver') {
+          // Si el target real es el botón eliminar, no abrir el lightbox
+          if (e.target.closest('[data-foto-action="eliminar"]')) return;
+          const url = el.dataset.fotoUrl;
+          if (url) this.abrirLightbox(url);
+        }
+      });
+    });
+  },
+
+  /** Abre el lightbox con la foto a tamaño completo. */
+  abrirLightbox(url) {
+    const modal = document.getElementById('foto-lightbox');
+    const img = document.getElementById('foto-lightbox-img');
+    if (!modal || !img) return;
+    img.src = url;
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+  },
+
+  /** Cierra el lightbox. */
+  cerrarLightbox() {
+    const modal = document.getElementById('foto-lightbox');
+    const img = document.getElementById('foto-lightbox-img');
+    if (!modal) return;
+    modal.hidden = true;
+    if (img) img.src = '';
+    document.body.style.overflow = '';
   },
 
   // ==================== HELPERS BUSINESS ====================
@@ -736,6 +1074,9 @@ Hora: ${this.fmtHora()}`;
       });
     });
 
+    // Bindear eventos de fotos (Fase Fotos)
+    this.bindEventosFotos(cont);
+
     // Iniciar cronómetros para servicios en curso (del técnico actual)
     this.state.servicios.forEach(s => {
       if (s.tecnico_id === userId && s.estado === 'en_progreso' && s.hora_inicio) {
@@ -873,6 +1214,9 @@ Hora: ${this.fmtHora()}`;
         html += `<div class="servicio-actions-jefe">${accionesJefe}</div>`;
       }
     }
+
+    // Galería de fotos (Fase Fotos) — siempre al final del card
+    html += this.renderFotosServicio(s);
 
     html += '</div>';
     return html;
@@ -2199,6 +2543,20 @@ Hora: ${this.fmtHora()}`;
     if (btnAddCatalogo) {
       btnAddCatalogo.addEventListener('click', () => this.abrirModalAgregarJefe());
     }
+
+    // ----- Lightbox de fotos (Fase Fotos) -----
+    const lbBackdrop = document.getElementById('foto-lightbox-backdrop');
+    const lbClose = document.getElementById('foto-lightbox-close');
+    if (lbBackdrop) lbBackdrop.addEventListener('click', () => this.cerrarLightbox());
+    if (lbClose) lbClose.addEventListener('click', () => this.cerrarLightbox());
+
+    // Cerrar lightbox con ESC (además del que ya existe para los modales)
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const lb = document.getElementById('foto-lightbox');
+        if (lb && !lb.hidden) this.cerrarLightbox();
+      }
+    });
   },
 
   toggleInfoCard() {
@@ -2257,6 +2615,7 @@ Hora: ${this.fmtHora()}`;
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ordenes' }, () => this.cargarOrden())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'servicios_orden' }, () => this.cargarOrden())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'historial_pausas' }, () => this.cargarOrden())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'fotos_servicio' }, () => this.cargarOrden())
       .subscribe();
 
     Utils.log('Realtime activado para', this.state.numOrden);
