@@ -1373,3 +1373,107 @@ input { outline: none; border: none; }
     width: 100%;
   }
 }
+
+/* ============================================================================
+   TÉCNICO — Tabs "En taller" / "Listas p/ entregar"
+   ============================================================================ */
+
+.tecnico-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: var(--sp-3);
+  padding: 4px;
+  background: rgba(255,255,255,0.04);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+}
+
+.tecnico-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.1s;
+}
+
+.tecnico-tab:hover:not(.tecnico-tab-active) {
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+}
+
+.tecnico-tab:active {
+  transform: scale(0.98);
+}
+
+.tecnico-tab-active {
+  background: var(--azul-claro);
+  color: white;
+  box-shadow: 0 2px 6px rgba(46,117,182,0.35);
+}
+
+.tecnico-tab-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.tecnico-tab-label {
+  white-space: nowrap;
+}
+
+.tecnico-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: rgba(255,255,255,0.12);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.tecnico-tab-active .tecnico-tab-count {
+  background: rgba(255,255,255,0.25);
+  color: white;
+}
+
+/* Cuando hay órdenes pendientes de entrega, el badge se vuelve dorado y pulsa */
+.tecnico-tab-con-pendientes:not(.tecnico-tab-active) .tecnico-tab-count-entregar {
+  background: var(--amarillo);
+  color: #1a1a1a;
+  animation: pulse-soft 1.8s ease-in-out infinite;
+  box-shadow: 0 0 8px rgba(255, 193, 7, 0.4);
+}
+
+.tecnico-tab-con-pendientes.tecnico-tab-active .tecnico-tab-count-entregar {
+  background: white;
+  color: var(--azul-primario);
+}
+
+/* Mobile: tabs ocupan todo el ancho con texto un poco más chico */
+@media (max-width: 380px) {
+  .tecnico-tab {
+    padding: 8px 6px;
+    font-size: 0.78rem;
+    gap: 4px;
+  }
+
+  .tecnico-tab-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
