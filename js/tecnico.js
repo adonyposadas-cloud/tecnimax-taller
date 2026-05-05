@@ -70,16 +70,20 @@ const Tecnico = {
       const { data, error } = await supabaseClient
         .from('ordenes')
         .select(`
-          num_orden, placa, prioridad, estado, motivo, creada_en,
+          num_orden, placa, prioridad, estado, motivo, creada_en, entregada_en,
           vehiculos ( marca, modelo, anio ),
           servicios_orden ( id, estado, servicio_id, tecnico_id, hora_inicio )
         `)
-        .neq('estado', 'completada')
+        .in('estado', ['abierta', 'en_progreso', 'completada'])
         .order('creada_en', { ascending: false });
 
       if (error) throw error;
 
-      this.state.todasLasOrdenes = data || [];
+      // Filtrar localmente: descartamos las completadas YA entregadas
+      // (las completadas pendientes de entrega sí las queremos en la lista)
+      this.state.todasLasOrdenes = (data || []).filter(o =>
+        o.estado !== 'completada' || !o.entregada_en
+      );
       this.aplicarFiltro();
       this.detectarServicioActivo();
     } catch (err) {
@@ -189,6 +193,10 @@ const Tecnico = {
     //   4. Resto, por fecha desc
     const userId = this.state.profile.id;
     const ords = [...this.state.ordenes].sort((a, b) => {
+      // 0. Listas para entregar arriba de todo (motorista esperando = urgencia operativa)
+      const aLista = a.estado === 'completada' && !a.entregada_en;
+      const bLista = b.estado === 'completada' && !b.entregada_en;
+      if (aLista !== bLista) return aLista ? -1 : 1;
       // 1. Urgentes primero
       if (a.prioridad !== b.prioridad) {
         return a.prioridad === 'urgente' ? -1 : 1;
@@ -250,14 +258,21 @@ const Tecnico = {
       .join(' · ');
 
     let cardClass = 'vehiculo-card';
-    if (orden.prioridad === 'urgente') cardClass += ' card-urgente';
+    const listaEntregar = orden.estado === 'completada' && !orden.entregada_en;
+    if (listaEntregar) cardClass += ' card-lista-entregar';
+    if (orden.prioridad === 'urgente' && !listaEntregar) cardClass += ' card-urgente';
     if (estadoMia) cardClass += ' card-mio';
     // Orden trabajada por otro técnico (y no por mí) → atenuar
     if (otroEnProgreso && !estadoMia) cardClass += ' card-otro';
 
-    let badgeHtml = orden.prioridad === 'urgente'
-      ? '<span class="badge-mini badge-urgente">Urgente</span>'
-      : '<span class="badge-mini badge-normal">Normal</span>';
+    let badgeHtml;
+    if (listaEntregar) {
+      badgeHtml = '<span class="badge-mini badge-lista-entregar">🚗 LISTA P/ ENTREGAR</span>';
+    } else if (orden.prioridad === 'urgente') {
+      badgeHtml = '<span class="badge-mini badge-urgente">Urgente</span>';
+    } else {
+      badgeHtml = '<span class="badge-mini badge-normal">Normal</span>';
+    }
 
     // Contador completados/total con colores semánticos:
     //   verde = completados, rojo = total
@@ -267,7 +282,9 @@ const Tecnico = {
       : '';
 
     let statusHtml = '';
-    if (estadoMia) {
+    if (listaEntregar) {
+      statusHtml = '<div class="card-status status-lista-entregar">✓ Trabajo terminado · Toca para entregar al motorista</div>';
+    } else if (estadoMia) {
       statusHtml = '<div class="card-status status-mio">▶ Tú estás trabajando aquí</div>';
     } else if (otroEnProgreso) {
       statusHtml = `<div class="card-status status-asignado">Otro técnico trabajando · ${contadorHtml}</div>`;
