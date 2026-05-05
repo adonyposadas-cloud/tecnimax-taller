@@ -1213,3 +1213,40 @@ input { outline: none; border: none; }
     left: 3px;
   }
 }
+
+/* ============================================================================
+   CARDS — Estado "Lista para entregar al motorista"
+   ============================================================================ */
+
+/* Badge llamativo para órdenes completadas pendientes de entrega */
+.badge-mini.badge-lista-entregar {
+  background: linear-gradient(135deg, var(--amarillo), #ff9d00);
+  color: #1a1a1a;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  box-shadow: 0 2px 8px rgba(255, 193, 7, 0.4);
+  animation: pulse-soft 1.8s ease-in-out infinite;
+}
+
+/* Card destacada con borde dorado */
+.vehiculo-card.card-lista-entregar {
+  border-left: 4px solid var(--amarillo);
+  background: linear-gradient(
+    90deg,
+    rgba(255, 193, 7, 0.08) 0%,
+    var(--bg-card) 25%
+  );
+  box-shadow: 0 2px 8px rgba(255, 193, 7, 0.12);
+}
+
+.vehiculo-card.card-lista-entregar:hover {
+  border-left-color: #ff9d00;
+  box-shadow: 0 4px 16px rgba(255, 193, 7, 0.25);
+}
+
+/* Status text dentro de la card */
+.card-status.status-lista-entregar {
+  color: var(--amarillo);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
