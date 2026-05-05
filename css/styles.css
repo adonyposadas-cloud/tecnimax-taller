@@ -1250,3 +1250,126 @@ input { outline: none; border: none; }
   font-weight: 600;
   letter-spacing: 0.02em;
 }
+
+/* ============================================================================
+   CONFIGURACIÓN — Sección Usuarios
+   ============================================================================ */
+
+.usuario-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  margin-bottom: 8px;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.usuario-row:hover {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(46,117,182,0.3);
+}
+
+.usuario-row-inactivo {
+  opacity: 0.55;
+}
+
+.usuario-row-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.usuario-row-nombre {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.usuario-row-codigo {
+  margin-top: 4px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.usuario-row-acciones {
+  flex-shrink: 0;
+}
+
+.usuario-rol-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.usuario-rol-admin {
+  background: rgba(220, 53, 69, 0.18);
+  color: #ff8b95;
+}
+
+.usuario-rol-jefe_pista {
+  background: rgba(255, 193, 7, 0.18);
+  color: var(--amarillo);
+}
+
+.usuario-rol-tecnico {
+  background: rgba(46, 117, 182, 0.20);
+  color: #79b6f0;
+}
+
+.usuario-rol-motorista {
+  background: rgba(40, 167, 69, 0.18);
+  color: #6bd084;
+}
+
+.usuario-row-inactivo-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  background: rgba(255,255,255,0.06);
+  color: var(--text-dim);
+  border: 1px solid var(--text-dim);
+}
+
+.usuario-row-yo {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 6px 12px;
+}
+
+.btn-mini {
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  border-radius: var(--r-sm);
+}
+
+/* Mobile: vertical stack en pantallas chicas */
+@media (max-width: 480px) {
+  .usuario-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .usuario-row-acciones {
+    width: 100%;
+  }
+  .usuario-row-acciones .btn-mini {
+    width: 100%;
+  }
+}
