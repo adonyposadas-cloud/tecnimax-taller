@@ -1131,6 +1131,7 @@ Hora: ${this.fmtHora()}`;
   renderBannerInfo() {
     const userId = this.state.profile.id;
     const banner = document.getElementById('banner-info');
+    const bannerStats = document.getElementById('banner-stats');
     const btnAdd = document.getElementById('btn-agregar-trabajo');
     const btnAddCatalogo = document.getElementById('btn-agregar-catalogo-tec');
 
@@ -1147,30 +1148,32 @@ Hora: ${this.fmtHora()}`;
       s => s.tecnico_id === userId && s.estado === 'pausado'
     );
     const totalActivos = enCurso.length + enPausa.length;
+    const hayPendientes = this.state.servicios.some(s => s.estado === 'pendiente');
+    const ordenEditable = this.state.orden &&
+      (this.state.orden.estado === 'abierta' || this.state.orden.estado === 'en_progreso');
 
-    if (totalActivos === 0) {
-      banner.hidden = true;
-      return;
-    }
+    // Reglas (relajadas):
+    //  - "+ Agregar a este trabajo": cualquier técnico, si la orden tiene pendientes y está activa
+    //  - "+ Servicio nuevo": cualquier técnico, si la orden está activa
+    btnAdd.hidden = !(ordenEditable && hayPendientes);
+    btnAddCatalogo.hidden = !ordenEditable;
 
-    banner.hidden = false;
-
-    let txt = '';
+    // Texto del banner según situación del técnico en ESTA orden
+    let txt = '—';
     if (enCurso.length > 0 && enPausa.length > 0) {
       txt = `${enCurso.length} en curso · ${enPausa.length} pausado${enPausa.length !== 1 ? 's' : ''}`;
     } else if (enCurso.length > 0) {
       txt = `${enCurso.length} servicio${enCurso.length !== 1 ? 's' : ''} en curso`;
-    } else {
+    } else if (enPausa.length > 0) {
       txt = `${enPausa.length} servicio${enPausa.length !== 1 ? 's' : ''} pausado${enPausa.length !== 1 ? 's' : ''}`;
+    } else if (ordenEditable) {
+      txt = 'Sin trabajo asignado en esta orden';
     }
-    document.getElementById('banner-stats').textContent = txt;
+    if (bannerStats) bannerStats.textContent = txt;
 
-    const hayPendientes = this.state.servicios.some(s => s.estado === 'pendiente');
-    btnAdd.hidden = !(hayPendientes && enCurso.length > 0);
-
-    // Botón "Servicio nuevo" siempre visible si tiene trabajo activo y la orden está abierta o en proceso
-    const ordenEditable = this.state.orden && (this.state.orden.estado === 'abierta' || this.state.orden.estado === 'en_progreso');
-    btnAddCatalogo.hidden = !(ordenEditable && totalActivos > 0);
+    // El banner se muestra si tiene servicios activos O si la orden está editable
+    // (para que los botones de "agregar" sean visibles aunque no tenga trabajo aquí).
+    banner.hidden = !(totalActivos > 0 || ordenEditable);
   },
 
   renderPanelJefe() {
