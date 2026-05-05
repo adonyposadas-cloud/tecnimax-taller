@@ -948,13 +948,14 @@ const Admin = {
     return total;
   },
 
-  // Formatea minutos a "Xh Ym" o "Y min"
+  // Formatea minutos a "Xh Ym" siempre. Devuelve "—" si es 0/null/inválido.
   formatMin(min) {
-    if (!min || min === 0) return '0 min';
-    if (min < 60) return `${min} min`;
-    const h = Math.floor(min / 60);
-    const m = min % 60;
-    return m === 0 ? `${h}h` : `${h}h ${m}m`;
+    if (min === null || min === undefined || min === 0 || isNaN(min)) return '—';
+    const total = Math.max(0, Math.round(Number(min)));
+    if (total === 0) return '—';
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    return `${h}h ${m}m`;
   },
 
   nombreUsuario(uid) {
@@ -996,7 +997,7 @@ const Admin = {
     if (serviciosCompletados.length > 0) {
       const sum = serviciosCompletados.reduce((acc, s) => acc + s.tiempo_real_min, 0);
       const avg = Math.round(sum / serviciosCompletados.length);
-      tiempoProm = avg + ' min';
+      tiempoProm = this.formatMin(avg);
     }
 
     document.getElementById('kpi-en-taller').textContent = enTaller;
@@ -1213,7 +1214,7 @@ const Admin = {
               <div class="kpi-item" data-orden="${o.num_orden}">
                 <div class="kpi-item-info">
                   <div class="kpi-item-titulo">${Utils.escapeHtml(o.placa)} · ${o.num_orden} ${fraccionHtml}</div>
-                  <div class="kpi-item-meta">Completada ${fecha} · ${tiempoTotal} min total${cancelados > 0 ? ` · ${cancelados} cancelado${cancelados !== 1 ? 's' : ''}` : ''}</div>
+                  <div class="kpi-item-meta">Completada ${fecha} · ${this.formatMin(tiempoTotal)} total${cancelados > 0 ? ` · ${cancelados} cancelado${cancelados !== 1 ? 's' : ''}` : ''}</div>
                 </div>
               </div>
             `;
@@ -1306,7 +1307,7 @@ const Admin = {
             <div class="alerta-item-meta">
               ${orden ? Utils.escapeHtml(orden.placa) : '—'} · ${s.num_orden} ·
               ${Utils.escapeHtml(this.nombreUsuario(s.tecnico_id))} ·
-              ${s.tiempo_real_min} min (mediana ${mediana} min)
+              ${this.formatMin(s.tiempo_real_min)} (mediana ${this.formatMin(mediana)})
             </div>
           </div>
           <div class="alerta-item-tiempo">${tipo}</div>
@@ -2041,8 +2042,8 @@ const Admin = {
                 <div class="prod-detalle-meta">${Utils.escapeHtml(placa)} · ${s.num_orden} · ${fechaFin}</div>
               </div>
               <div class="prod-detalle-tiempo">
-                <div>${tiempoReal} min</div>
-                ${mediana > 0 ? `<div class="prod-detalle-mediana">esperado: ${mediana} min</div>` : ''}
+                <div>${this.formatMin(tiempoReal)}</div>
+                ${mediana > 0 ? `<div class="prod-detalle-mediana">esperado: ${this.formatMin(mediana)}</div>` : ''}
               </div>
             </div>
           `;
