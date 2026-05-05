@@ -1149,14 +1149,20 @@ Hora: ${this.fmtHora()}`;
     );
     const totalActivos = enCurso.length + enPausa.length;
     const hayPendientes = this.state.servicios.some(s => s.estado === 'pendiente');
-    const ordenEditable = this.state.orden &&
-      (this.state.orden.estado === 'abierta' || this.state.orden.estado === 'en_progreso');
 
-    // Reglas (relajadas):
-    //  - "+ Agregar a este trabajo": cualquier técnico, si la orden tiene pendientes y está activa
-    //  - "+ Servicio nuevo": cualquier técnico, si la orden está activa
-    btnAdd.hidden = !(ordenEditable && hayPendientes);
-    btnAddCatalogo.hidden = !ordenEditable;
+    const o = this.state.orden;
+    const ordenAbierta = o && (o.estado === 'abierta' || o.estado === 'en_progreso');
+    // Orden completada pero aún sin entregar: permite "+ Servicio nuevo"
+    // (al agregar se reactivará automáticamente a en_progreso)
+    const ordenCompletadaSinEntregar = o && o.estado === 'completada' && !o.entregada_en;
+    const puedeAgregarCatalogo = ordenAbierta || ordenCompletadaSinEntregar;
+
+    // Reglas:
+    //  - "+ Agregar a este trabajo": tomar pendientes (solo si hay pendientes en orden activa)
+    //  - "+ Servicio nuevo": cualquier técnico, en orden activa O completada-sin-entregar
+    //    (al agregar, se reactiva la orden automáticamente)
+    btnAdd.hidden = !(ordenAbierta && hayPendientes);
+    btnAddCatalogo.hidden = !puedeAgregarCatalogo;
 
     // Texto del banner según situación del técnico en ESTA orden
     let txt = '—';
@@ -1166,14 +1172,15 @@ Hora: ${this.fmtHora()}`;
       txt = `${enCurso.length} servicio${enCurso.length !== 1 ? 's' : ''} en curso`;
     } else if (enPausa.length > 0) {
       txt = `${enPausa.length} servicio${enPausa.length !== 1 ? 's' : ''} pausado${enPausa.length !== 1 ? 's' : ''}`;
-    } else if (ordenEditable) {
+    } else if (ordenCompletadaSinEntregar) {
+      txt = 'Trabajo terminado · Si encontraste algo más, agregalo';
+    } else if (ordenAbierta) {
       txt = 'Sin trabajo asignado en esta orden';
     }
     if (bannerStats) bannerStats.textContent = txt;
 
-    // El banner se muestra si tiene servicios activos O si la orden está editable
-    // (para que los botones de "agregar" sean visibles aunque no tenga trabajo aquí).
-    banner.hidden = !(totalActivos > 0 || ordenEditable);
+    // El banner se muestra si tiene servicios activos O si puede agregar al catálogo
+    banner.hidden = !(totalActivos > 0 || puedeAgregarCatalogo);
   },
 
   renderPanelJefe() {
