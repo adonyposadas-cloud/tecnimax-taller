@@ -24,6 +24,7 @@ const Tecnico = {
     realtimeChannel: null,
     cronometroInterval: null,
     servicioActivo: null,
+    tabActiva: 'taller',  // 'taller' | 'entregar'
   },
 
   // ==================== INIT ====================
@@ -44,10 +45,52 @@ const Tecnico = {
 
     document.getElementById('btn-logout').addEventListener('click', () => Auth.logout());
 
+    this.inyectarTabs();
     await this.cargarCatalogoServicios();
     await this.cargarOrdenes();
     this.bindEventos();
     this.activarRealtime();
+  },
+
+  /**
+   * Inyecta dinámicamente las tabs "En taller" / "Listas p/ entregar"
+   * justo antes de la lista de vehículos. Se hace en JS (no en HTML)
+   * para no requerir cambios al tecnico.html.
+   */
+  inyectarTabs() {
+    const list = document.getElementById('vehiculos-list');
+    if (!list || document.getElementById('tecnico-tabs')) return;
+
+    const tabsHtml = `
+      <div id="tecnico-tabs" class="tecnico-tabs">
+        <button class="tecnico-tab tecnico-tab-active" data-tab="taller" type="button">
+          <span class="tecnico-tab-icon">🔧</span>
+          <span class="tecnico-tab-label">En taller</span>
+          <span class="tecnico-tab-count" id="tab-count-taller">0</span>
+        </button>
+        <button class="tecnico-tab" data-tab="entregar" type="button">
+          <span class="tecnico-tab-icon">🚗</span>
+          <span class="tecnico-tab-label">Listas p/ entregar</span>
+          <span class="tecnico-tab-count tecnico-tab-count-entregar" id="tab-count-entregar">0</span>
+        </button>
+      </div>`;
+    list.insertAdjacentHTML('beforebegin', tabsHtml);
+
+    document.querySelectorAll('.tecnico-tab').forEach(btn => {
+      btn.addEventListener('click', () => this.cambiarTab(btn.dataset.tab));
+    });
+  },
+
+  cambiarTab(tab) {
+    if (tab !== 'taller' && tab !== 'entregar') return;
+    if (this.state.tabActiva === tab) return;
+    this.state.tabActiva = tab;
+
+    document.querySelectorAll('.tecnico-tab').forEach(btn => {
+      btn.classList.toggle('tecnico-tab-active', btn.dataset.tab === tab);
+    });
+
+    this.aplicarFiltro();
   },
 
   // ==================== CATÁLOGO ====================
@@ -93,12 +136,35 @@ const Tecnico = {
 
   aplicarFiltro() {
     const q = this.state.busqueda.trim().toLowerCase();
-    this.state.ordenes = !q
+
+    // Filtro por búsqueda (placa o número)
+    let filtradas = !q
       ? this.state.todasLasOrdenes
       : this.state.todasLasOrdenes.filter(o =>
           o.placa.toLowerCase().includes(q) ||
           o.num_orden.toLowerCase().includes(q)
         );
+
+    // Calcular contadores de cada tab (después de búsqueda, antes de filtrar por tab)
+    const enTaller = filtradas.filter(o => !(o.estado === 'completada' && !o.entregada_en));
+    const listasEntregar = filtradas.filter(o => o.estado === 'completada' && !o.entregada_en);
+
+    // Actualizar contadores en las tabs
+    const setTabCount = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val;
+    };
+    setTabCount('tab-count-taller', enTaller.length);
+    setTabCount('tab-count-entregar', listasEntregar.length);
+
+    // Toggle de "destacado" del badge según haya entregas pendientes
+    const tabEntregar = document.querySelector('.tecnico-tab[data-tab="entregar"]');
+    if (tabEntregar) {
+      tabEntregar.classList.toggle('tecnico-tab-con-pendientes', listasEntregar.length > 0);
+    }
+
+    // Aplicar filtro por tab activa
+    this.state.ordenes = this.state.tabActiva === 'entregar' ? listasEntregar : enTaller;
     this.renderLista();
   },
 
@@ -216,12 +282,16 @@ const Tecnico = {
     count.textContent = ords.length;
 
     if (ords.length === 0) {
-      const mensaje = this.state.busqueda
-        ? 'No se encontraron vehículos con ese criterio.'
-        : 'Sin vehículos en taller en este momento.';
-      const sub = this.state.busqueda
-        ? ''
-        : '<p style="color: var(--text-dim); font-size: 0.85rem; margin-top: 0.5rem;">Cuando el jefe cree una orden, aparecerá aquí.</p>';
+      let mensaje, sub = '';
+      if (this.state.busqueda) {
+        mensaje = 'No se encontraron vehículos con ese criterio.';
+      } else if (this.state.tabActiva === 'entregar') {
+        mensaje = 'No hay vehículos listos para entregar.';
+        sub = '<p style="color: var(--text-dim); font-size: 0.85rem; margin-top: 0.5rem;">Cuando termines todos los servicios de una orden, aparecerá aquí.</p>';
+      } else {
+        mensaje = 'Sin vehículos en taller en este momento.';
+        sub = '<p style="color: var(--text-dim); font-size: 0.85rem; margin-top: 0.5rem;">Cuando el jefe cree una orden, aparecerá aquí.</p>';
+      }
       list.innerHTML = `<div class="empty-state"><p>${mensaje}</p>${sub}</div>`;
       return;
     }
