@@ -201,6 +201,21 @@
         </div>
       </section>
 
+      <!-- ============= SECCIÓN E: USUARIOS ============= -->
+      <section class="card config-section">
+        <div class="card-header card-header-clickable" data-section="usuarios">
+          <h2 class="section-title-h2">👥 Usuarios</h2>
+          <span class="card-badge" id="usuarios-count">0</span>
+          <span class="config-toggle" id="toggle-usuarios">▶</span>
+        </div>
+        <div id="usuarios-body" class="config-body" hidden>
+          <p class="config-hint">Lista de usuarios del taller. Solo el admin puede resetear el PIN de otros usuarios.</p>
+          <div id="usuarios-list" class="config-list">
+            <p class="empty-state">Cargando usuarios...</p>
+          </div>
+        </div>
+      </section>
+
     </div>
 
   </main>
@@ -538,6 +553,42 @@
       <footer class="modal-footer">
         <button type="button" class="btn-secondary" id="btn-cancelar-grupo">Cancelar</button>
         <button type="button" class="btn-primary-action" id="btn-confirmar-grupo">Guardar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: RESETEAR PIN ============= -->
+  <div id="modal-resetear-pin" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">🔑 Resetear PIN</h2>
+      </header>
+      <div class="modal-body">
+        <p class="modal-desc">
+          Vas a cambiar el PIN de:
+          <strong id="reset-pin-usuario-nombre">—</strong>
+          <br>
+          <small style="color: var(--text-muted);" id="reset-pin-usuario-codigo">—</small>
+        </p>
+        <div class="field">
+          <label for="reset-pin-input">Nuevo PIN (6 dígitos)</label>
+          <input type="text" id="reset-pin-input" class="field-input"
+                 inputmode="numeric" pattern="[0-9]*" maxlength="6"
+                 autocomplete="off" placeholder="••••••" />
+          <span class="field-help">Solo números. Decile al colaborador el PIN nuevo personalmente o por WhatsApp.</span>
+        </div>
+        <div class="field">
+          <label for="reset-pin-confirm">Confirmar PIN</label>
+          <input type="text" id="reset-pin-confirm" class="field-input"
+                 inputmode="numeric" pattern="[0-9]*" maxlength="6"
+                 autocomplete="off" placeholder="••••••" />
+        </div>
+        <div id="reset-pin-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-reset-pin">Cancelar</button>
+        <button type="button" class="btn-primary-action" id="btn-confirmar-reset-pin">Cambiar PIN</button>
       </footer>
     </div>
   </div>
