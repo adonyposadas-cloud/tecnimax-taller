@@ -17,9 +17,11 @@ const Configuracion = {
     categorias: [],
     intervalos: [],
     grupos: [],
+    usuarios: [],
     busquedaCatalogo: '',
-    seccionExpandida: 'catalogo',  // catalogo | intervalos | grupos | kmgps
+    seccionExpandida: 'catalogo',  // catalogo | intervalos | grupos | kmgps | usuarios
     editando: null,  // { tipo, id }
+    resetPinUsuario: null,  // {id, nombre, codigo} cuando se está reseteando un PIN
 
     // ===== Módulo Importar KM (GPS) =====
     kmgps: {
@@ -77,11 +79,13 @@ const Configuracion = {
         this.cargarCatalogo(),
         this.cargarIntervalos(),
         this.cargarGrupos(),
+        this.cargarUsuarios(),
         this.cargarHistorialKmGps(),  // tolerante a fallos (si la tabla aún no existe)
       ]);
       this.renderCatalogo();
       this.renderIntervalos();
       this.renderGrupos();
+      this.renderUsuarios();
       this.renderHistorialKmGps();
     } catch (err) {
       Utils.log('Error cargando configuración:', err);
@@ -559,11 +563,25 @@ const Configuracion = {
     document.getElementById('btn-cancelar-servicio').addEventListener('click', () => this.cerrarModales());
     document.getElementById('btn-cancelar-intervalo').addEventListener('click', () => this.cerrarModales());
     document.getElementById('btn-cancelar-grupo').addEventListener('click', () => this.cerrarModales());
+    const btnCancelarReset = document.getElementById('btn-cancelar-reset-pin');
+    if (btnCancelarReset) btnCancelarReset.addEventListener('click', () => this.cerrarModales());
 
     // Modales: confirmar
     document.getElementById('btn-confirmar-servicio').addEventListener('click', () => this.guardarServicio());
     document.getElementById('btn-confirmar-intervalo').addEventListener('click', () => this.guardarIntervalo());
     document.getElementById('btn-confirmar-grupo').addEventListener('click', () => this.guardarGrupo());
+    const btnConfirmarReset = document.getElementById('btn-confirmar-reset-pin');
+    if (btnConfirmarReset) btnConfirmarReset.addEventListener('click', () => this.confirmarResetPin());
+
+    // Filtrar inputs de PIN: solo dígitos
+    ['reset-pin-input', 'reset-pin-confirm'].forEach(id => {
+      const inp = document.getElementById(id);
+      if (inp) {
+        inp.addEventListener('input', (e) => {
+          e.target.value = e.target.value.replace(/[^0-9]/g, '').slice(0, 6);
+        });
+      }
+    });
 
     // ============= MÓDULO IMPORTAR KM (GPS) =============
     const btnSeleccionar = document.getElementById('btn-kmgps-seleccionar');
@@ -606,7 +624,145 @@ const Configuracion = {
     document.getElementById('modal-servicio').hidden = true;
     document.getElementById('modal-intervalo').hidden = true;
     document.getElementById('modal-grupo').hidden = true;
+    const modalReset = document.getElementById('modal-resetear-pin');
+    if (modalReset) modalReset.hidden = true;
     this.state.editando = null;
+    this.state.resetPinUsuario = null;
+  },
+
+  // ============================================================
+  // ============= MÓDULO: USUARIOS =============================
+  // ============================================================
+  async cargarUsuarios() {
+    const { data, error } = await supabaseClient
+      .from('usuarios')
+      .select('id, nombre, codigo, rol, activo')
+      .order('rol', { ascending: true })
+      .order('nombre', { ascending: true });
+    if (error) throw error;
+    this.state.usuarios = data || [];
+  },
+
+  renderUsuarios() {
+    const list = document.getElementById('usuarios-list');
+    const count = document.getElementById('usuarios-count');
+    if (!list) return;
+
+    const usuarios = this.state.usuarios || [];
+    if (count) count.textContent = usuarios.length;
+
+    if (usuarios.length === 0) {
+      list.innerHTML = '<p class="empty-state">No hay usuarios registrados.</p>';
+      return;
+    }
+
+    const callerId = this.state.profile.id;
+    const rolBadge = (rol) => {
+      const labels = { admin: 'Admin', jefe_pista: 'Jefe', tecnico: 'Técnico', motorista: 'Motorista' };
+      return `<span class="usuario-rol-badge usuario-rol-${rol}">${labels[rol] || rol}</span>`;
+    };
+
+    list.innerHTML = usuarios.map(u => {
+      const esYo = u.id === callerId;
+      const inactivo = u.activo === false;
+      const btnReset = esYo
+        ? '<span class="usuario-row-yo" title="No podés resetear tu propio PIN desde aquí">— Eres tú —</span>'
+        : `<button class="btn-secondary btn-mini" data-reset-pin data-uid="${Utils.escapeHtml(u.id)}" data-nombre="${Utils.escapeHtml(u.nombre)}" data-codigo="${Utils.escapeHtml(u.codigo || '')}">🔑 Resetear PIN</button>`;
+      return `
+        <div class="usuario-row${inactivo ? ' usuario-row-inactivo' : ''}">
+          <div class="usuario-row-info">
+            <div class="usuario-row-nombre">
+              ${Utils.escapeHtml(u.nombre)}
+              ${rolBadge(u.rol)}
+              ${inactivo ? '<span class="usuario-row-inactivo-tag">INACTIVO</span>' : ''}
+            </div>
+            <div class="usuario-row-codigo">${Utils.escapeHtml(u.codigo || '—')}</div>
+          </div>
+          <div class="usuario-row-acciones">${btnReset}</div>
+        </div>`;
+    }).join('');
+
+    // Bindear botones de reset
+    list.querySelectorAll('[data-reset-pin]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.abrirModalResetPin({
+          id: btn.dataset.uid,
+          nombre: btn.dataset.nombre,
+          codigo: btn.dataset.codigo,
+        });
+      });
+    });
+  },
+
+  abrirModalResetPin(usuario) {
+    this.state.resetPinUsuario = usuario;
+    document.getElementById('reset-pin-usuario-nombre').textContent = usuario.nombre;
+    document.getElementById('reset-pin-usuario-codigo').textContent = usuario.codigo
+      ? `Código: ${usuario.codigo}`
+      : '';
+    document.getElementById('reset-pin-input').value = '';
+    document.getElementById('reset-pin-confirm').value = '';
+    const errEl = document.getElementById('reset-pin-error');
+    if (errEl) errEl.hidden = true;
+
+    const modal = document.getElementById('modal-resetear-pin');
+    modal.hidden = false;
+    setTimeout(() => document.getElementById('reset-pin-input').focus(), 100);
+  },
+
+  async confirmarResetPin() {
+    const usuario = this.state.resetPinUsuario;
+    if (!usuario) return;
+
+    const pin = document.getElementById('reset-pin-input').value.trim();
+    const pinConfirm = document.getElementById('reset-pin-confirm').value.trim();
+    const errEl = document.getElementById('reset-pin-error');
+    const btnConfirm = document.getElementById('btn-confirmar-reset-pin');
+
+    const mostrarError = (msg) => {
+      if (errEl) {
+        errEl.textContent = msg;
+        errEl.hidden = false;
+      }
+    };
+
+    // Validaciones cliente
+    if (pin.length !== 6 || !/^[0-9]{6}$/.test(pin)) {
+      return mostrarError('El PIN debe ser exactamente 6 dígitos numéricos.');
+    }
+    if (pin !== pinConfirm) {
+      return mostrarError('Los PINs no coinciden.');
+    }
+
+    // Loading state
+    if (errEl) errEl.hidden = true;
+    if (btnConfirm) {
+      btnConfirm.disabled = true;
+      btnConfirm.textContent = 'Cambiando...';
+    }
+
+    try {
+      const { data, error } = await supabaseClient.rpc('admin_resetear_pin', {
+        target_user_id: usuario.id,
+        nuevo_pin: pin,
+      });
+
+      if (error) throw error;
+      if (data && data.ok === false) {
+        throw new Error(data.mensaje || 'No se pudo cambiar el PIN');
+      }
+
+      this.cerrarModales();
+      alert(`✅ PIN cambiado para ${usuario.nombre}.\nDecile el nuevo PIN en privado.`);
+    } catch (err) {
+      Utils.log('Error reseteando PIN:', err);
+      mostrarError('Error: ' + (err.message || 'No se pudo cambiar el PIN'));
+    } finally {
+      if (btnConfirm) {
+        btnConfirm.disabled = false;
+        btnConfirm.textContent = 'Cambiar PIN';
+      }
+    }
   },
 
   // ============================================================
