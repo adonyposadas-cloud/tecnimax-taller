@@ -68,6 +68,24 @@ const Historial = {
     document.getElementById('user-nombre-header').textContent = profile.nombre || 'Usuario';
     document.getElementById('btn-logout').addEventListener('click', () => Auth.logout());
 
+    // Inyectar CSS del indicador de lista contextual de servicios
+    if (!document.getElementById('hist-contexto-hint-styles')) {
+      const style = document.createElement('style');
+      style.id = 'hist-contexto-hint-styles';
+      style.textContent = `
+        .hist-combo-contexto-hint {
+          font-size: 0.72rem;
+          color: var(--amarillo, #ffc107);
+          background: rgba(255, 193, 7, 0.08);
+          border-bottom: 1px solid rgba(255, 193, 7, 0.15);
+          padding: 5px 10px;
+          text-align: center;
+          letter-spacing: 0.01em;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
     // Si entra el jefe, redirigir el "Volver" a jefe.html en lugar de admin.html
     if (profile.rol === 'jefe_pista') {
       const btnVolver = document.getElementById('btn-volver');
@@ -236,6 +254,15 @@ const Historial = {
       trigger.setAttribute('aria-expanded', 'true');
       this.state.comboFiltros[tipo] = '';
       search.value = '';
+
+      // Asegurar que el hint de contexto exista en el panel de servicios
+      if (tipo === 'servicio' && !panel.querySelector('.hist-combo-contexto-hint')) {
+        const hint = document.createElement('div');
+        hint.className = 'hist-combo-contexto-hint';
+        hint.hidden = true;
+        panel.insertBefore(hint, panel.querySelector('.hist-combo-list'));
+      }
+
       this.renderComboItems(combo);
       setTimeout(() => search.focus(), 30);
     }
@@ -250,12 +277,66 @@ const Historial = {
     trigger.setAttribute('aria-expanded', 'false');
   },
 
+  /**
+   * Calcula el conjunto de servicio_ids que realmente aparecen en las órdenes
+   * ya filtradas por placa, orden, técnico, período y estado —sin contar el
+   * filtro de servicio en sí mismo— para que el dropdown de servicios muestre
+   * solo opciones relevantes al contexto actual.
+   */
+  getServicioIdsContextuales() {
+    const f = this.state.filtros;
+    const periodo = this.state.periodo;
+    const estadoFilter = this.state.estado;
+
+    const placaQ = (f.placa || '').trim().toLowerCase();
+    const ordenQ = (f.orden || '').trim().toLowerCase();
+
+    let fechaDesde = null;
+    if (periodo !== 'todas') {
+      const dias = parseInt(periodo, 10);
+      if (!isNaN(dias)) {
+        fechaDesde = new Date();
+        fechaDesde.setDate(fechaDesde.getDate() - dias);
+        fechaDesde.setHours(0, 0, 0, 0);
+      }
+    }
+
+    // Filtrar órdenes aplicando todos los criterios EXCEPTO el filtro de servicio
+    const ordenesFiltradas = this.state.ordenes.filter(o => {
+      if (fechaDesde && new Date(o.creada_en) < fechaDesde) return false;
+      if (estadoFilter !== 'todos' && o.estado !== estadoFilter) return false;
+      if (placaQ && !(o.placa || '').toLowerCase().includes(placaQ)) return false;
+      if (ordenQ && !(o.num_orden || '').toLowerCase().includes(ordenQ)) return false;
+      if (f.tecnico) {
+        const serviciosOrden = this.state.servicios.filter(s => s.num_orden === o.num_orden);
+        const cumple = serviciosOrden.some(s => String(s.tecnico_id) === String(f.tecnico));
+        if (!cumple) return false;
+      }
+      return true;
+    });
+
+    const numOrdenesSet = new Set(ordenesFiltradas.map(o => o.num_orden));
+
+    // Recolectar servicio_ids únicos de esas órdenes,
+    // también respetando el filtro de técnico a nivel de servicio individual
+    const servicioIds = new Set();
+    this.state.servicios.forEach(s => {
+      if (!numOrdenesSet.has(s.num_orden)) return;
+      if (f.tecnico && String(s.tecnico_id) !== String(f.tecnico)) return;
+      if (s.servicio_id != null) servicioIds.add(String(s.servicio_id));
+    });
+
+    return servicioIds;
+  },
+
   renderComboItems(combo) {
     const tipo = combo.dataset.combo;
     const list = combo.querySelector('.hist-combo-list');
     const filtroTexto = (this.state.comboFiltros[tipo] || '').toLowerCase().trim();
 
     let items = [];
+    let contextoActivo = false; // indica si la lista está reducida por contexto
+
     if (tipo === 'tecnico') {
       items = (this.state.usuarios || [])
         .filter(u => u.rol === 'tecnico' || u.rol === 'admin' || u.rol === 'jefe_pista')
@@ -266,13 +347,36 @@ const Historial = {
         }))
         .sort((a, b) => (a.label || '').localeCompare(b.label || ''));
     } else if (tipo === 'servicio') {
-      items = (this.state.serviciosCatalogo || [])
+      // Lista contextual: solo servicios presentes en las órdenes ya filtradas
+      const idsContextuales = this.getServicioIdsContextuales();
+      const totalCatalogo = (this.state.serviciosCatalogo || []).length;
+
+      if (idsContextuales.size > 0 && idsContextuales.size < totalCatalogo) {
+        contextoActivo = true;
+      }
+
+      const catalogoFuente = idsContextuales.size > 0
+        ? (this.state.serviciosCatalogo || []).filter(c => idsContextuales.has(String(c.id)))
+        : (this.state.serviciosCatalogo || []);
+
+      items = catalogoFuente
         .map(c => ({
           id: c.id,
           label: c.nombre,
           meta: c.tiempo_promedio_min ? `${c.tiempo_promedio_min} min` : '',
         }))
         .sort((a, b) => (a.label || '').localeCompare(b.label || ''));
+
+      // Mostrar u ocultar el indicador de contexto activo en el panel
+      const panelHint = combo.querySelector('.hist-combo-contexto-hint');
+      if (panelHint) {
+        if (contextoActivo) {
+          panelHint.textContent = `Mostrando ${items.length} de ${totalCatalogo} servicios`;
+          panelHint.hidden = false;
+        } else {
+          panelHint.hidden = true;
+        }
+      }
     }
 
     if (filtroTexto) {
@@ -457,6 +561,21 @@ const Historial = {
 
       return true;
     });
+
+    // Si hay un servicio seleccionado y ya no aparece en el contexto actual
+    // (porque cambió la placa, el técnico, etc.), resetearlo automáticamente
+    if (f.servicio) {
+      const idsContextuales = this.getServicioIdsContextuales();
+      if (idsContextuales.size > 0 && !idsContextuales.has(String(f.servicio))) {
+        this.state.filtros.servicio = null;
+        this.state.filtros.servicioLabel = '';
+        const comboServicio = document.querySelector('.hist-combobox[data-combo="servicio"]');
+        if (comboServicio) this.actualizarComboTrigger(comboServicio);
+        // Re-aplicar con el filtro limpio
+        this.aplicarFiltros();
+        return;
+      }
+    }
 
     // Refrescar panel de estadísticas
     this.actualizarStatsCard();
