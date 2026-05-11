@@ -80,17 +80,31 @@ const Preventivo = {
     if (loading) loading.hidden = false;
     if (main) main.hidden = true;
 
+    // Timeout de diagnóstico: si en 12s no cargó, muestra qué falló
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      if (loading && !loading.hidden) {
+        loading.innerHTML = `
+          <p style="color:#ffc107;text-align:center;font-size:0.9rem;">
+            ⏱ La carga está tardando más de lo esperado.<br>
+            Revisa la consola del navegador (F12 → Console) para ver el error.
+          </p>`;
+      }
+    }, 12000);
+
     try {
       const [ordenesR, serviciosR, catalogoR, gpsR] = await Promise.all([
         supabaseClient
           .from('ordenes')
           .select('num_orden, placa, vehiculos(marca, modelo, anio)'),
 
+        // Sin .not() para evitar combinaciones problemáticas con Supabase;
+        // filtramos hora_fin null en el cliente
         supabaseClient
           .from('servicios_orden')
           .select('id, num_orden, servicio_id, estado, hora_fin, tecnico_id')
-          .eq('estado', 'completado')
-          .not('hora_fin', 'is', null),
+          .eq('estado', 'completado'),
 
         supabaseClient
           .from('catalogo_servicios')
@@ -101,29 +115,40 @@ const Preventivo = {
           .select('placa, fecha, metros_registrado'),
       ]);
 
-      if (ordenesR.error) throw ordenesR.error;
-      if (serviciosR.error) throw serviciosR.error;
-      if (catalogoR.error) throw catalogoR.error;
-      if (gpsR.error) throw gpsR.error;
+      clearTimeout(timeoutId);
+      if (timedOut) return; // si ya se mostró el error, no continuar
 
-      this.state.ordenes   = ordenesR.data  || [];
-      this.state.servicios = serviciosR.data || [];
-      this.state.catalogo  = catalogoR.data  || [];
-      this.state.gpsKm     = gpsR.data       || [];
+      if (ordenesR.error)  throw new Error(`ordenes: ${ordenesR.error.message}`);
+      if (serviciosR.error) throw new Error(`servicios_orden: ${serviciosR.error.message}`);
+      if (catalogoR.error) throw new Error(`catalogo_servicios: ${catalogoR.error.message}`);
+      if (gpsR.error)      throw new Error(`gps_km: ${gpsR.error.message}`);
+
+      this.state.ordenes   = ordenesR.data || [];
+      // Filtro client-side: solo los que tienen hora_fin registrada
+      this.state.servicios = (serviciosR.data || []).filter(s => s.hora_fin != null);
+      this.state.catalogo  = catalogoR.data || [];
+      this.state.gpsKm     = gpsR.data      || [];
 
       Utils.log(`Preventivo: ${this.state.ordenes.length} órdenes, ${this.state.servicios.length} servicios completados, ${this.state.gpsKm.length} registros GPS.`);
 
     } catch (err) {
+      clearTimeout(timeoutId);
       Utils.log('Error cargando preventivo:', err);
       if (loading) {
-        loading.innerHTML = `<p style="color:var(--rojo-urgente);text-align:center;">
-          Error cargando datos: ${Utils.escapeHtml(err.message || '')}
-        </p>`;
+        loading.innerHTML = `
+          <p style="color:#f87171;text-align:center;padding:20px;font-size:0.88rem;">
+            ❌ Error cargando datos:<br><strong>${Utils.escapeHtml(err.message || String(err))}</strong>
+          </p>`;
+        loading.hidden = false;
+        if (main) main.hidden = true;
+        return;
       }
-      return;
     } finally {
-      if (loading) loading.hidden = true;
-      if (main) main.hidden = false;
+      clearTimeout(timeoutId);
+      if (!timedOut) {
+        if (loading) loading.hidden = true;
+        if (main) main.hidden = false;
+      }
     }
   },
 
