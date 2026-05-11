@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Oswald:wght@500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="../css/main.css" />
+  <link rel="stylesheet" href="../css/styles.css" />
 
   <style>
     /* ====== Layout base ====== */
@@ -265,17 +265,13 @@
 <body>
 
   <!-- ===== HEADER ===== -->
-  <header class="main-header">
-    <div class="header-left">
-      <span class="logo-text">TECNIMAX</span>
-      <span class="header-sep">·</span>
-      <span class="header-titulo">Preventivo</span>
-      <span class="header-sep">·</span>
-      <span class="header-user" id="user-nombre-header">—</span>
+  <header class="app-header">
+    <div>
+      <strong>TECNIMAX</strong> · Preventivo · <span id="user-nombre-header">—</span>
     </div>
-    <div class="header-right">
-      <a href="admin.html" id="btn-volver" class="btn-secondary btn-sm">← Volver al panel</a>
-      <button id="btn-logout" class="btn-danger btn-sm">Salir</button>
+    <div>
+      <a id="btn-volver" href="admin.html" class="btn-config" title="Volver al panel">← Volver al panel</a>
+      <button id="btn-logout" class="btn-logout">Salir</button>
     </div>
   </header>
 
