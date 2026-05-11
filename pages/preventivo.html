@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Preventivo — TECNIMAX</title>
+  <link rel="manifest" href="../manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Oswald:wght@500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/main.css" />
+
+  <style>
+    /* ====== Layout base ====== */
+    .prev-contenedor {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 20px 16px 60px;
+    }
+
+    /* ====== Stats bar ====== */
+    .prev-stats-bar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .prev-stat-chip {
+      background: var(--panel-bg, rgba(255,255,255,0.05));
+      border: 1px solid var(--border-color, rgba(255,255,255,0.08));
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-size: 0.82rem;
+      color: var(--text-muted, rgba(255,255,255,0.6));
+    }
+    .prev-stat-chip strong {
+      color: var(--text, #e8f0fe);
+      font-size: 1.1rem;
+      margin-right: 4px;
+    }
+
+    /* ====== Filtros ====== */
+    .prev-filtros {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .prev-input-wrap {
+      position: relative;
+      flex: 1;
+      min-width: 200px;
+      max-width: 340px;
+    }
+    .prev-input-placa {
+      width: 100%;
+      padding: 9px 36px 9px 12px;
+      background: var(--input-bg, rgba(255,255,255,0.07));
+      border: 1px solid var(--border-color, rgba(255,255,255,0.12));
+      border-radius: 8px;
+      color: var(--text, #e8f0fe);
+      font-family: 'Manrope', sans-serif;
+      font-size: 0.9rem;
+      box-sizing: border-box;
+    }
+    .prev-input-placa:focus { outline: none; border-color: var(--azul-acento, #2f7fe0); }
+    .prev-input-placa::placeholder { color: var(--text-muted, rgba(255,255,255,0.35)); }
+    .prev-input-icon {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 0.85rem;
+      pointer-events: none;
+      opacity: 0.5;
+    }
+
+    .prev-toggle-gps-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+      color: var(--text-muted, rgba(255,255,255,0.6));
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .prev-toggle-gps-label input[type=checkbox] { cursor: pointer; }
+
+    /* ====== Empty state ====== */
+    #prev-empty {
+      text-align: center;
+      color: var(--text-muted, rgba(255,255,255,0.4));
+      padding: 60px 20px;
+      font-size: 0.95rem;
+    }
+
+    /* ====== Cards de vehículo ====== */
+    .prev-vehiculo-card {
+      background: var(--panel-bg, rgba(255,255,255,0.04));
+      border: 1px solid var(--border-color, rgba(255,255,255,0.08));
+      border-radius: 10px;
+      margin-bottom: 12px;
+      overflow: hidden;
+      transition: border-color 0.15s;
+    }
+    .prev-vehiculo-card:hover { border-color: rgba(47,127,224,0.35); }
+    .prev-vehiculo-card.expandida { border-color: rgba(47,127,224,0.5); }
+
+    .prev-vehiculo-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      cursor: pointer;
+      gap: 12px;
+    }
+    .prev-vehiculo-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .prev-placa {
+      font-family: 'Oswald', sans-serif;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--azul-acento, #2f7fe0);
+      white-space: nowrap;
+    }
+    .prev-vehiculo-txt {
+      font-size: 0.82rem;
+      color: var(--text-muted, rgba(255,255,255,0.55));
+    }
+
+    .prev-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      border-radius: 10px;
+      padding: 2px 9px;
+      white-space: nowrap;
+    }
+    .prev-badge-km {
+      color: #5bc8f5;
+      background: rgba(91,200,245,0.12);
+      border: 1px solid rgba(91,200,245,0.25);
+    }
+    .prev-badge-nogps {
+      color: rgba(255,255,255,0.35);
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .prev-vehiculo-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .prev-servicios-count {
+      font-size: 0.78rem;
+      color: var(--text-muted, rgba(255,255,255,0.4));
+    }
+    .prev-toggle-icon {
+      font-size: 0.7rem;
+      color: var(--text-muted, rgba(255,255,255,0.4));
+    }
+
+    /* ====== Tabla de servicios ====== */
+    .prev-servicios-tabla {
+      border-top: 1px solid var(--border-color, rgba(255,255,255,0.07));
+      padding: 0 0 8px;
+    }
+    .prev-servicios-header-row,
+    .prev-servicio-fila {
+      display: grid;
+      grid-template-columns: 1fr 130px 140px 90px;
+      gap: 8px;
+      padding: 8px 16px;
+      align-items: center;
+      font-size: 0.82rem;
+    }
+    .prev-servicios-header-row {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted, rgba(255,255,255,0.35));
+      border-bottom: 1px solid var(--border-color, rgba(255,255,255,0.06));
+      padding-bottom: 6px;
+    }
+    .prev-servicio-fila {
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      transition: background 0.1s;
+    }
+    .prev-servicio-fila:hover { background: rgba(255,255,255,0.025); }
+    .prev-servicio-fila:last-child { border-bottom: none; }
+
+    .prev-servicio-nombre {
+      color: var(--text, #e8f0fe);
+      font-weight: 500;
+    }
+    .prev-servicio-fecha {
+      color: var(--text-muted, rgba(255,255,255,0.5));
+      font-size: 0.8rem;
+    }
+    .prev-servicio-km {
+      font-weight: 700;
+      font-size: 0.88rem;
+    }
+    .prev-km-alto  { color: #f87171; }   /* rojo — lleva mucho tiempo */
+    .prev-km-medio { color: #fbbf24; }   /* amarillo */
+    .prev-km-bajo  { color: #86efac; }   /* verde — reciente */
+    .prev-sin-gps-txt { color: rgba(255,255,255,0.3); font-size: 0.78rem; }
+    .prev-servicio-veces {
+      color: var(--text-muted, rgba(255,255,255,0.4));
+      font-size: 0.8rem;
+      text-align: right;
+    }
+
+    /* ====== Loading ====== */
+    #prev-loading {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-muted, rgba(255,255,255,0.5));
+    }
+    .prev-spinner {
+      display: inline-block;
+      width: 28px; height: 28px;
+      border: 3px solid rgba(255,255,255,0.1);
+      border-top-color: var(--azul-acento, #2f7fe0);
+      border-radius: 50%;
+      animation: prevSpin 0.7s linear infinite;
+      margin-bottom: 12px;
+    }
+    @keyframes prevSpin { to { transform: rotate(360deg); } }
+
+    /* ====== Nota de cobertura GPS ====== */
+    .prev-nota-gps {
+      font-size: 0.78rem;
+      color: var(--text-muted, rgba(255,255,255,0.35));
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 8px;
+      padding: 8px 14px;
+      margin-bottom: 16px;
+    }
+
+    /* ====== Mobile ====== */
+    @media (max-width: 600px) {
+      .prev-servicios-header-row,
+      .prev-servicio-fila {
+        grid-template-columns: 1fr 100px 100px;
+      }
+      /* Ocultar columna "Realizaciones" en móvil */
+      .prev-servicios-header-row span:last-child,
+      .prev-servicio-fila .prev-servicio-veces { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ===== HEADER ===== -->
+  <header class="main-header">
+    <div class="header-left">
+      <span class="logo-text">TECNIMAX</span>
+      <span class="header-sep">·</span>
+      <span class="header-titulo">Preventivo</span>
+      <span class="header-sep">·</span>
+      <span class="header-user" id="user-nombre-header">—</span>
+    </div>
+    <div class="header-right">
+      <a href="admin.html" id="btn-volver" class="btn-secondary btn-sm">← Volver al panel</a>
+      <button id="btn-logout" class="btn-danger btn-sm">Salir</button>
+    </div>
+  </header>
+
+  <!-- ===== CONTENIDO ===== -->
+  <div class="prev-contenedor">
+
+    <!-- Loading -->
+    <div id="prev-loading">
+      <div class="prev-spinner"></div>
+      <div>Cargando datos de flota y GPS…</div>
+    </div>
+
+    <!-- Main (oculto hasta que cargue) -->
+    <div id="prev-main" hidden>
+
+      <!-- Stats -->
+      <div class="prev-stats-bar">
+        <div class="prev-stat-chip">
+          <strong id="prev-stat-vehiculos">—</strong> unidades con historial
+        </div>
+        <div class="prev-stat-chip">
+          <strong id="prev-stat-servicios">—</strong> tipos de servicio registrados
+        </div>
+      </div>
+
+      <!-- Nota GPS -->
+      <div class="prev-nota-gps">
+        📡 Los km muestran el total acumulado desde la última realización de cada servicio,
+        calculado con los registros GPS disponibles. Valores bajos en servicios antiguos
+        pueden indicar cobertura GPS parcial.
+      </div>
+
+      <!-- Filtros -->
+      <div class="prev-filtros">
+        <div class="prev-input-wrap">
+          <input
+            type="text"
+            id="prev-input-placa"
+            class="prev-input-placa"
+            placeholder="Buscar por placa…"
+            autocomplete="off"
+          />
+          <span class="prev-input-icon">🔍</span>
+        </div>
+        <label class="prev-toggle-gps-label">
+          <input type="checkbox" id="prev-toggle-gps" />
+          Solo unidades con GPS
+        </label>
+      </div>
+
+      <!-- Lista de vehículos -->
+      <div id="prev-flota-list"></div>
+
+      <!-- Empty -->
+      <div id="prev-empty" hidden>
+        Sin unidades que coincidan con el filtro.
+      </div>
+
+    </div><!-- /prev-main -->
+  </div><!-- /prev-contenedor -->
+
+  <!-- Scripts -->
+  <script src="../js/supabase-client.js"></script>
+  <script src="../js/utils.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="preventivo.js"></script>
+
+</body>
+</html>
