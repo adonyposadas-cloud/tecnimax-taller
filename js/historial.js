@@ -32,6 +32,7 @@ const Historial = {
     cancelaciones: [],
     fotos: [],            // Fotos de los servicios (Fase Fotos)
     fotosUrls: {},        // Cache de URLs firmadas { storage_path: { url, expira_en } }
+    gpsKm: [],            // Registros de gps_km (placa, fecha, metros_registrado)
 
     // Filtros activos — TODOS combinables, AND lógico entre ellos
     filtros: {
@@ -68,22 +69,27 @@ const Historial = {
     document.getElementById('user-nombre-header').textContent = profile.nombre || 'Usuario';
     document.getElementById('btn-logout').addEventListener('click', () => Auth.logout());
 
-    // Inyectar CSS del indicador de lista contextual de servicios
-    if (!document.getElementById('hist-contexto-hint-styles')) {
-      const style = document.createElement('style');
-      style.id = 'hist-contexto-hint-styles';
-      style.textContent = `
-        .hist-combo-contexto-hint {
-          font-size: 0.72rem;
-          color: var(--amarillo, #ffc107);
-          background: rgba(255, 193, 7, 0.08);
-          border-bottom: 1px solid rgba(255, 193, 7, 0.15);
-          padding: 5px 10px;
-          text-align: center;
-          letter-spacing: 0.01em;
+    // CSS para badges de km GPS
+    if (!document.getElementById('hist-km-badge-styles')) {
+      const s = document.createElement('style');
+      s.id = 'hist-km-badge-styles';
+      s.textContent = `
+        .hist-km-badge {
+          display: inline-flex; align-items: center; gap: 3px;
+          font-size: 0.72rem; font-weight: 600; letter-spacing: 0.01em;
+          color: #5bc8f5; background: rgba(91,200,245,0.12);
+          border: 1px solid rgba(91,200,245,0.25);
+          border-radius: 10px; padding: 2px 8px;
+          white-space: nowrap;
+        }
+        .hist-km-badge-sm {
+          font-size: 0.68rem; padding: 1px 6px;
+          color: #5bc8f5; background: rgba(91,200,245,0.10);
+          border: 1px solid rgba(91,200,245,0.20);
+          border-radius: 8px; margin-left: 6px; font-weight: 500;
         }
       `;
-      document.head.appendChild(style);
+      document.head.appendChild(s);
     }
 
     // Si entra el jefe, redirigir el "Volver" a jefe.html en lugar de admin.html
@@ -254,15 +260,6 @@ const Historial = {
       trigger.setAttribute('aria-expanded', 'true');
       this.state.comboFiltros[tipo] = '';
       search.value = '';
-
-      // Asegurar que el hint de contexto exista en el panel de servicios
-      if (tipo === 'servicio' && !panel.querySelector('.hist-combo-contexto-hint')) {
-        const hint = document.createElement('div');
-        hint.className = 'hist-combo-contexto-hint';
-        hint.hidden = true;
-        panel.insertBefore(hint, panel.querySelector('.hist-combo-list'));
-      }
-
       this.renderComboItems(combo);
       setTimeout(() => search.focus(), 30);
     }
@@ -277,66 +274,12 @@ const Historial = {
     trigger.setAttribute('aria-expanded', 'false');
   },
 
-  /**
-   * Calcula el conjunto de servicio_ids que realmente aparecen en las órdenes
-   * ya filtradas por placa, orden, técnico, período y estado —sin contar el
-   * filtro de servicio en sí mismo— para que el dropdown de servicios muestre
-   * solo opciones relevantes al contexto actual.
-   */
-  getServicioIdsContextuales() {
-    const f = this.state.filtros;
-    const periodo = this.state.periodo;
-    const estadoFilter = this.state.estado;
-
-    const placaQ = (f.placa || '').trim().toLowerCase();
-    const ordenQ = (f.orden || '').trim().toLowerCase();
-
-    let fechaDesde = null;
-    if (periodo !== 'todas') {
-      const dias = parseInt(periodo, 10);
-      if (!isNaN(dias)) {
-        fechaDesde = new Date();
-        fechaDesde.setDate(fechaDesde.getDate() - dias);
-        fechaDesde.setHours(0, 0, 0, 0);
-      }
-    }
-
-    // Filtrar órdenes aplicando todos los criterios EXCEPTO el filtro de servicio
-    const ordenesFiltradas = this.state.ordenes.filter(o => {
-      if (fechaDesde && new Date(o.creada_en) < fechaDesde) return false;
-      if (estadoFilter !== 'todos' && o.estado !== estadoFilter) return false;
-      if (placaQ && !(o.placa || '').toLowerCase().includes(placaQ)) return false;
-      if (ordenQ && !(o.num_orden || '').toLowerCase().includes(ordenQ)) return false;
-      if (f.tecnico) {
-        const serviciosOrden = this.state.servicios.filter(s => s.num_orden === o.num_orden);
-        const cumple = serviciosOrden.some(s => String(s.tecnico_id) === String(f.tecnico));
-        if (!cumple) return false;
-      }
-      return true;
-    });
-
-    const numOrdenesSet = new Set(ordenesFiltradas.map(o => o.num_orden));
-
-    // Recolectar servicio_ids únicos de esas órdenes,
-    // también respetando el filtro de técnico a nivel de servicio individual
-    const servicioIds = new Set();
-    this.state.servicios.forEach(s => {
-      if (!numOrdenesSet.has(s.num_orden)) return;
-      if (f.tecnico && String(s.tecnico_id) !== String(f.tecnico)) return;
-      if (s.servicio_id != null) servicioIds.add(String(s.servicio_id));
-    });
-
-    return servicioIds;
-  },
-
   renderComboItems(combo) {
     const tipo = combo.dataset.combo;
     const list = combo.querySelector('.hist-combo-list');
     const filtroTexto = (this.state.comboFiltros[tipo] || '').toLowerCase().trim();
 
     let items = [];
-    let contextoActivo = false; // indica si la lista está reducida por contexto
-
     if (tipo === 'tecnico') {
       items = (this.state.usuarios || [])
         .filter(u => u.rol === 'tecnico' || u.rol === 'admin' || u.rol === 'jefe_pista')
@@ -347,36 +290,13 @@ const Historial = {
         }))
         .sort((a, b) => (a.label || '').localeCompare(b.label || ''));
     } else if (tipo === 'servicio') {
-      // Lista contextual: solo servicios presentes en las órdenes ya filtradas
-      const idsContextuales = this.getServicioIdsContextuales();
-      const totalCatalogo = (this.state.serviciosCatalogo || []).length;
-
-      if (idsContextuales.size > 0 && idsContextuales.size < totalCatalogo) {
-        contextoActivo = true;
-      }
-
-      const catalogoFuente = idsContextuales.size > 0
-        ? (this.state.serviciosCatalogo || []).filter(c => idsContextuales.has(String(c.id)))
-        : (this.state.serviciosCatalogo || []);
-
-      items = catalogoFuente
+      items = (this.state.serviciosCatalogo || [])
         .map(c => ({
           id: c.id,
           label: c.nombre,
           meta: c.tiempo_promedio_min ? `${c.tiempo_promedio_min} min` : '',
         }))
         .sort((a, b) => (a.label || '').localeCompare(b.label || ''));
-
-      // Mostrar u ocultar el indicador de contexto activo en el panel
-      const panelHint = combo.querySelector('.hist-combo-contexto-hint');
-      if (panelHint) {
-        if (contextoActivo) {
-          panelHint.textContent = `Mostrando ${items.length} de ${totalCatalogo} servicios`;
-          panelHint.hidden = false;
-        } else {
-          panelHint.hidden = true;
-        }
-      }
     }
 
     if (filtroTexto) {
@@ -436,7 +356,7 @@ const Historial = {
     document.getElementById('hist-empty').hidden = true;
 
     try {
-      const [ordenesR, serviciosR, usuariosR, catalogoR, cancR, pausasR, fotosR] = await Promise.all([
+      const [ordenesR, serviciosR, usuariosR, catalogoR, cancR, pausasR, fotosR, gpsKmR] = await Promise.all([
         // Órdenes con join al vehículo
         supabaseClient
           .from('ordenes')
@@ -475,6 +395,11 @@ const Historial = {
         supabaseClient
           .from('fotos_servicio')
           .select('id, servicio_orden_id, tipo, storage_path, subida_por, subida_en, notas'),
+
+        // GPS km — carga completa para calcular km desde cada servicio
+        supabaseClient
+          .from('gps_km')
+          .select('placa, fecha, metros_registrado'),
       ]);
 
       if (ordenesR.error) throw ordenesR.error;
@@ -491,8 +416,9 @@ const Historial = {
       this.state.cancelaciones = (cancR && !cancR.error) ? (cancR.data || []) : [];
       this.state.pausas = pausasR.data || [];
       this.state.fotos = (fotosR && !fotosR.error) ? (fotosR.data || []) : [];
+      this.state.gpsKm = (gpsKmR && !gpsKmR.error) ? (gpsKmR.data || []) : [];
 
-      Utils.log(`Historial cargado: ${this.state.ordenes.length} órdenes, ${this.state.servicios.length} servicios, ${this.state.pausas.length} pausas, ${this.state.fotos.length} fotos.`);
+      Utils.log(`Historial cargado: ${this.state.ordenes.length} órdenes, ${this.state.servicios.length} servicios, ${this.state.pausas.length} pausas, ${this.state.fotos.length} fotos, ${this.state.gpsKm.length} registros GPS.`);
     } catch (err) {
       Utils.log('Error cargando historial:', err);
       document.getElementById('hist-loading').innerHTML = `<p style="color: var(--rojo-urgente);">Error cargando datos: ${Utils.escapeHtml(err.message || '')}</p>`;
@@ -561,21 +487,6 @@ const Historial = {
 
       return true;
     });
-
-    // Si hay un servicio seleccionado y ya no aparece en el contexto actual
-    // (porque cambió la placa, el técnico, etc.), resetearlo automáticamente
-    if (f.servicio) {
-      const idsContextuales = this.getServicioIdsContextuales();
-      if (idsContextuales.size > 0 && !idsContextuales.has(String(f.servicio))) {
-        this.state.filtros.servicio = null;
-        this.state.filtros.servicioLabel = '';
-        const comboServicio = document.querySelector('.hist-combobox[data-combo="servicio"]');
-        if (comboServicio) this.actualizarComboTrigger(comboServicio);
-        // Re-aplicar con el filtro limpio
-        this.aplicarFiltros();
-        return;
-      }
-    }
 
     // Refrescar panel de estadísticas
     this.actualizarStatsCard();
@@ -782,6 +693,14 @@ const Historial = {
     const estadoTexto = this.estadoLegible(orden.estado);
     const estadoClass = `hist-estado-${orden.estado || 'abierta'}`;
 
+    // Km desde que se cerró esta orden (o desde el último servicio completado)
+    const fechaRefKm = orden.cerrada_en
+      || serviciosOrden.filter(s => s.hora_fin).sort((a, b) => b.hora_fin.localeCompare(a.hora_fin))[0]?.hora_fin;
+    const kmOrden = fechaRefKm ? this.calcularKmDesde(orden.placa, fechaRefKm) : null;
+    const kmBadgeCard = (kmOrden !== null && this.state.gpsKm.some(g => g.placa === orden.placa))
+      ? `<span class="hist-km-badge">📍 ${this.formatKm(kmOrden)}</span>`
+      : '';
+
     // Lista de nombres de servicios (preview)
     const nombresServ = serviciosOrden
       .map(s => {
@@ -807,6 +726,7 @@ const Historial = {
               <span>👤 <strong>${tecnicosNombres.length > 0 ? Utils.escapeHtml(tecnicosNombres.join(', ')) : 'Sin asignar'}</strong></span>
               ${totalServicios > 0 ? `<span>🔧 <strong>${completados}/${totalServicios}</strong> servicios</span>` : ''}
               ${tiempoTotalMin > 0 ? `<span>⏱ <strong>${this.formatMin(tiempoTotalMin)}</strong></span>` : ''}
+              ${kmBadgeCard}
             </div>
           </div>
           <span class="hist-orden-toggle" aria-hidden="true">▼</span>
@@ -873,7 +793,7 @@ const Historial = {
       serviciosHtml = `
         <div class="hist-detalle-section">
           <div class="hist-detalle-titulo">Servicios</div>
-          ${serviciosOrden.map(s => this.renderServicioRow(s)).join('')}
+          ${serviciosOrden.map(s => this.renderServicioRow(s, orden.placa)).join('')}
         </div>
       `;
     }
@@ -921,7 +841,7 @@ const Historial = {
     `;
   },
 
-  renderServicioRow(s) {
+  renderServicioRow(s, placa = null) {
     const cat = this.state.serviciosCatalogo.find(c => c.id === s.servicio_id);
     const nombre = cat?.nombre || 'Servicio';
 
@@ -949,6 +869,14 @@ const Historial = {
 
     const cancelado = s.estado === 'cancelado';
 
+    // Km recorridos desde que se completó este servicio específico
+    const kmServicio = (s.estado === 'completado' && s.hora_fin && placa && this.state.gpsKm.some(g => g.placa === placa))
+      ? this.calcularKmDesde(placa, s.hora_fin)
+      : null;
+    const kmServicioBadge = kmServicio !== null
+      ? `<span class="hist-km-badge hist-km-badge-sm">📍 hace ${this.formatKm(kmServicio)}</span>`
+      : '';
+
     // Badge de velocidad: solo si hay filtro tecnico Y/O servicio activo, y
     // este servicio está completado con tiempo medible. Compara contra la
     // mediana del catálogo: <85% = rápido, >115% = lento, intermedio = normal.
@@ -969,7 +897,7 @@ const Historial = {
     return `
       <div class="hist-servicio-row${cancelado ? ' hist-servicio-cancelado' : ''}">
         <div class="hist-servicio-info">
-          <div class="hist-servicio-nombre">${Utils.escapeHtml(nombre)}${velocidadBadge}</div>
+          <div class="hist-servicio-nombre">${Utils.escapeHtml(nombre)}${velocidadBadge}${kmServicioBadge}</div>
           ${tecnico !== '—' ? `<div class="hist-servicio-tecnico">Técnico: <strong>${Utils.escapeHtml(tecnico)}</strong>${agregadoPor && agregadoPor !== '—' ? ` · agregado por ${Utils.escapeHtml(agregadoPor)}` : ''}</div>` : ''}
           ${inicio || fin ? `<div class="hist-servicio-tiempos">${inicio ? '▶ ' + inicio : ''}${fin ? ' → ⏹ ' + fin : ''}</div>` : ''}
           ${sospechoso ? `<div class="hist-servicio-sospechoso">⚠ Tiempo sospechoso${tiempoEsperado ? ` (esperado ~${tiempoEsperado} min)` : ''}</div>` : ''}
@@ -1181,6 +1109,34 @@ const Historial = {
     modal.hidden = true;
     if (img) img.src = '';
     document.body.style.overflow = '';
+  },
+
+  // ==================== GPS KM ====================
+  /**
+   * Suma los metros registrados en gps_km para una placa desde una fecha/hora
+   * dada hasta hoy, excluyendo registros con valor 1001 (no movió).
+   * Retorna km con un decimal.
+   */
+  calcularKmDesde(placa, fechaISO) {
+    if (!placa || !fechaISO) return null;
+    const fechaLimite = fechaISO.substring(0, 10); // 'YYYY-MM-DD'
+    const metros = (this.state.gpsKm || [])
+      .filter(g =>
+        g.placa === placa &&
+        g.fecha > fechaLimite &&
+        g.metros_registrado !== 1001
+      )
+      .reduce((sum, g) => sum + (g.metros_registrado || 0), 0);
+    return Math.round(metros / 100) / 10; // km con 1 decimal
+  },
+
+  /**
+   * Formatea un valor de km para mostrar: "< 1 km", "245.3 km", "1,234.5 km"
+   */
+  formatKm(km) {
+    if (km === null || km === undefined) return '—';
+    if (km < 1) return '< 1 km';
+    return km.toLocaleString('es-HN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' km';
   },
 
   // ==================== HELPERS ====================
