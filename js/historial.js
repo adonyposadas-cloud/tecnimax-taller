@@ -90,6 +90,19 @@ const Historial = {
           border: 1px solid rgba(91,200,245,0.20);
           border-radius: 8px; margin-left: 6px; font-weight: 500;
         }
+        .hist-costo-badge {
+          display: inline-flex; align-items: center; gap: 3px;
+          font-size: 0.72rem; font-weight: 700;
+          color: #ffc107; background: rgba(255,193,7,0.12);
+          border: 1px solid rgba(255,193,7,0.3);
+          border-radius: 10px; padding: 2px 8px; white-space: nowrap;
+        }
+        .hist-costo-badge-sm {
+          font-size: 0.68rem; padding: 1px 6px;
+          color: #fbbf24; background: rgba(251,191,36,0.10);
+          border: 1px solid rgba(251,191,36,0.2);
+          border-radius: 8px; font-weight: 600;
+        }
 
         /* ===== Modal edición de pausas ===== */
         .hist-pausa-edit-btn {
@@ -444,7 +457,7 @@ const Historial = {
         // Usuarios (técnicos, admin, jefe)
         supabaseClient
           .from('usuarios')
-          .select('id, nombre, codigo, rol'),
+          .select('id, nombre, codigo, rol, precio_hora'),
 
         // Catálogo de servicios
         supabaseClient
@@ -780,7 +793,14 @@ const Historial = {
     const estadoTexto = this.estadoLegible(orden.estado);
     const estadoClass = `hist-estado-${orden.estado || 'abierta'}`;
 
-    // Km desde que se cerró esta orden (o desde el último servicio completado)
+    // Costo total de la orden (suma de costo por servicio de cada técnico)
+    const costoOrden = serviciosOrden
+      .filter(s => s.estado === 'completado' && s.tiempo_real_min)
+      .reduce((acc, s) => acc + this.calcularCosto(s.tecnico_id, s.tiempo_real_min), 0);
+    const costoOrdenBadge = costoOrden > 0
+      ? `<span class="hist-costo-badge">💰 L. ${this.formatLps(costoOrden)}</span>`
+      : '';
+    // Km desde que se cerró esta orden
     const fechaRefKm = orden.cerrada_en
       || serviciosOrden.filter(s => s.hora_fin).sort((a, b) => b.hora_fin.localeCompare(a.hora_fin))[0]?.hora_fin;
     const kmOrden = fechaRefKm ? this.calcularKmDesde(orden.placa, fechaRefKm) : null;
@@ -814,6 +834,7 @@ const Historial = {
               ${totalServicios > 0 ? `<span>🔧 <strong>${completados}/${totalServicios}</strong> servicios</span>` : ''}
               ${tiempoTotalMin > 0 ? `<span>⏱ <strong>${this.formatMin(tiempoTotalMin)}</strong></span>` : ''}
               ${kmBadgeCard}
+              ${costoOrdenBadge}
             </div>
           </div>
           <span class="hist-orden-toggle" aria-hidden="true">▼</span>
@@ -849,6 +870,11 @@ const Historial = {
           <span class="hist-resumen-label">Tiempo en pausa</span>
           <span class="hist-resumen-value">${this.formatMin(totalPausasMin) || '—'}</span>
         </div>
+        ${costoOrden > 0 ? `
+        <div class="hist-resumen-item">
+          <span class="hist-resumen-label">Mano de obra</span>
+          <span class="hist-resumen-value" style="color:#ffc107;font-weight:700;">L. ${this.formatLps(costoOrden)}</span>
+        </div>` : ''}
         <div class="hist-resumen-item">
           <span class="hist-resumen-label">Servicios</span>
           <span class="hist-resumen-value">${serviciosOrden.length}</span>
@@ -956,6 +982,14 @@ const Historial = {
 
     const cancelado = s.estado === 'cancelado';
 
+    // Costo por servicio
+    const costoServicio = (s.estado === 'completado' && s.tiempo_real_min && s.tecnico_id)
+      ? this.calcularCosto(s.tecnico_id, s.tiempo_real_min)
+      : 0;
+    const costoBadge = costoServicio > 0
+      ? `<span class="hist-costo-badge hist-costo-badge-sm">L. ${this.formatLps(costoServicio)}</span>`
+      : '';
+
     // Km recorridos desde que se completó este servicio específico
     const kmServicio = (s.estado === 'completado' && s.hora_fin && placa && this.state.gpsKm.some(g => g.placa === placa))
       ? this.calcularKmDesde(placa, s.hora_fin)
@@ -991,7 +1025,11 @@ const Historial = {
           ${s.observacion ? `<div class="hist-servicio-obs">"${Utils.escapeHtml(s.observacion)}"</div>` : ''}
           ${this.renderFotosServicioHist(s)}
         </div>
-        <div class="hist-servicio-tiempo-real">${tiempoTexto}</div>
+        <div class="hist-servicio-tiempo-real" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+          <span>${tiempoTexto}</span>
+          ${costoBadge}
+          ${editServBtn}
+        </div>
       </div>
     `;
   },
@@ -1434,6 +1472,25 @@ const Historial = {
     if (km === null || km === undefined) return '—';
     if (km < 1) return '< 1 km';
     return km.toLocaleString('es-HN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' km';
+  },
+
+  // ==================== COSTO MANO DE OBRA ====================
+  /**
+   * Calcula el costo de un servicio = tiempo_real_min / 60 * precio_hora del técnico.
+   * Retorna 0 si el técnico no tiene precio_hora configurado.
+   */
+  calcularCosto(tecnicoId, tiempoMin) {
+    if (!tecnicoId || !tiempoMin) return 0;
+    const u = (this.state.usuarios || []).find(x => x.id === tecnicoId);
+    const precioHora = u?.precio_hora ? Number(u.precio_hora) : 0;
+    if (!precioHora) return 0;
+    return Math.round((tiempoMin / 60) * precioHora * 100) / 100;
+  },
+
+  /** Formatea un valor en Lempiras: "1,234.56" */
+  formatLps(val) {
+    if (val === null || val === undefined) return '—';
+    return Number(val).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   },
 
   // ==================== HELPERS ====================
