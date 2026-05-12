@@ -987,7 +987,11 @@ const Historial = {
 
     const cancelado = s.estado === 'cancelado';
 
-    // Costo por servicio
+    // Botón editar servicio (solo admin, solo completados)
+    const esAdmin = this.state.profile?.rol === 'admin';
+    const editServBtn = (esAdmin && s.estado === 'completado')
+      ? `<button class="hist-pausa-edit-btn" data-servicio-id="${s.id}" title="Corregir horario del servicio">✏️</button>`
+      : '';
     const costoServicio = (s.estado === 'completado' && s.tiempo_real_min && s.tecnico_id)
       ? this.calcularCosto(s.tecnico_id, s.tiempo_real_min)
       : 0;
