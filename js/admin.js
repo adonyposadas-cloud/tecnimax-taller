@@ -1368,6 +1368,7 @@ const Admin = {
                     <span class="actividad-nombre">${Utils.escapeHtml(this.nombreServicio(sa.servicio_id))}</span>
                     <span class="actividad-cronos" id="cron-${t.id}-${sa.id}">00:00:00</span>
                     <button type="button" class="btn-pausa-remota" data-action="pausar-remoto" data-sid="${sa.id}" data-tid="${t.id}" title="Pausar (técnico ausente)">⏸</button>
+                    <button type="button" class="btn-editar-inicio" data-action="editar-inicio" data-sid="${sa.id}" title="Corregir hora de inicio">✏️</button>
                   </div>`;
         }).join('');
 
@@ -1389,6 +1390,7 @@ const Admin = {
                       ${motivo ? `<span class="motivo-tag ${esAusente ? 'motivo-ausente' : ''}">${motivo}</span>` : ''}
                       <span class="actividad-cronos pausa-cronos-inline" id="pausa-cron-inline-${sp.id}" data-inicio="${pausa?.hora_pausa || ''}">--:--:--</span>
                       ${esAusente ? `<button type="button" class="btn-reanudar-remoto" data-action="reanudar-remoto" data-sid="${sp.id}" title="Reanudar">▶</button>` : ''}${pausa ? `<button type="button" class="btn-cerrar-dia" data-action="cerrar-dia" data-sid="${sp.id}" data-tid="${t.id}" title="Cerrar día">⏹</button>` : ''}
+                      <button type="button" class="btn-editar-inicio" data-action="editar-inicio" data-sid="${sp.id}" title="Corregir hora de inicio">✏️</button>
                     </div>`;
           }).join('');
         }
@@ -1417,6 +1419,7 @@ const Admin = {
                     ${motivo ? `<span class="motivo-tag ${esAusente ? 'motivo-ausente' : ''}">${motivo}</span>` : ''}
                     <span class="actividad-cronos pausa-cronos-inline" id="pausa-cron-inline-${sp.id}" data-inicio="${pausa?.hora_pausa || ''}">--:--:--</span>
                     ${esAusente ? `<button type="button" class="btn-reanudar-remoto" data-action="reanudar-remoto" data-sid="${sp.id}" title="Reanudar">▶</button>` : ''}${pausa ? `<button type="button" class="btn-cerrar-dia" data-action="cerrar-dia" data-sid="${sp.id}" data-tid="${t.id}" title="Cerrar día">⏹</button>` : ''}
+                    <button type="button" class="btn-editar-inicio" data-action="editar-inicio" data-sid="${sp.id}" title="Corregir hora de inicio">✏️</button>
                   </div>`;
         }).join('');
 
@@ -1477,6 +1480,9 @@ const Admin = {
           const sid = parseInt(btn.dataset.sid, 10);
           const tid = btn.dataset.tid;
           this.cerrarDiaServicioRemoto(sid, tid);
+        } else if (action === 'editar-inicio') {
+          const sid = parseInt(btn.dataset.sid, 10);
+          this.abrirModalEditarInicio(sid);
         }
       });
     }
@@ -2221,6 +2227,160 @@ const Admin = {
     if (this.state.pollingInterval) {
       clearInterval(this.state.pollingInterval);
       this.state.pollingInterval = null;
+    }
+  },
+
+  // ==================== EDICIÓN DE HORA DE INICIO (admin) ====================
+
+  /** Convierte ISO timestamp a formato YYYY-MM-DDTHH:MM en hora local. */
+  toDatetimeLocal(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  },
+
+  /** Abre modal para corregir hora_inicio de un servicio activo o pausado. */
+  abrirModalEditarInicio(servicioId) {
+    const s = this.state.servicios.find(x => x.id === servicioId);
+    if (!s) return;
+
+    const orden = this.state.ordenes.find(o => o.num_orden === s.num_orden);
+    const placa = orden?.placa || '—';
+    const nombreServ = this.nombreServicio(s.servicio_id);
+
+    document.getElementById('admin-editar-inicio-backdrop')?.remove();
+
+    // Inyectar CSS si no existe
+    if (!document.getElementById('admin-editar-inicio-css')) {
+      const style = document.createElement('style');
+      style.id = 'admin-editar-inicio-css';
+      style.textContent = `
+        #admin-editar-inicio-backdrop {
+          position:fixed;inset:0;background:rgba(0,0,0,0.65);
+          z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;
+        }
+        #admin-editar-inicio-modal {
+          background:#0d2137;border:1px solid rgba(47,127,224,0.4);
+          border-radius:12px;padding:24px;width:100%;max-width:400px;
+          box-shadow:0 8px 40px rgba(0,0,0,0.5);font-family:'Manrope',sans-serif;
+        }
+        #admin-editar-inicio-modal h3 {
+          margin:0 0 4px;font-family:'Oswald',sans-serif;
+          font-size:1rem;color:#e8f0fe;font-weight:600;
+        }
+        .admin-modal-sub {
+          font-size:0.78rem;color:rgba(255,255,255,0.45);margin-bottom:18px;
+        }
+        .admin-modal-field { margin-bottom:16px; }
+        .admin-modal-field label {
+          display:block;font-size:0.72rem;font-weight:700;
+          letter-spacing:0.05em;text-transform:uppercase;
+          color:rgba(255,255,255,0.45);margin-bottom:6px;
+        }
+        .admin-modal-field input[type="datetime-local"] {
+          width:100%;padding:9px 12px;box-sizing:border-box;
+          background:rgba(255,255,255,0.07);
+          border:1px solid rgba(255,255,255,0.15);
+          border-radius:8px;color:#e8f0fe;font-size:0.9rem;
+          font-family:'Manrope',sans-serif;color-scheme:dark;
+        }
+        .admin-modal-field input:focus { outline:none;border-color:#2f7fe0; }
+        .admin-modal-actions {
+          display:flex;gap:10px;justify-content:flex-end;margin-top:18px;
+        }
+        .admin-modal-cancel {
+          padding:8px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);
+          background:transparent;color:rgba(255,255,255,0.6);cursor:pointer;
+          font-family:'Manrope',sans-serif;font-size:0.88rem;
+        }
+        .admin-modal-save {
+          padding:8px 22px;border-radius:8px;border:none;
+          background:#2f7fe0;color:#fff;font-weight:600;cursor:pointer;
+          font-family:'Manrope',sans-serif;font-size:0.88rem;
+        }
+        .admin-modal-save:disabled { background:#1a3a5c;color:rgba(255,255,255,0.4);cursor:not-allowed; }
+        .admin-modal-msg { min-height:20px;font-size:0.78rem;margin-top:8px;text-align:center; }
+        .admin-modal-err { color:#f87171; }
+        .admin-modal-ok  { color:#86efac; }
+        .btn-editar-inicio {
+          background:none;border:none;cursor:pointer;
+          font-size:0.78rem;opacity:0.4;padding:1px 3px;
+          border-radius:4px;transition:opacity 0.15s;
+          flex-shrink:0;
+        }
+        .btn-editar-inicio:hover { opacity:1; }
+      `;
+      document.head.appendChild(style);
+    }
+
+    const backdrop = document.createElement('div');
+    backdrop.id = 'admin-editar-inicio-backdrop';
+    backdrop.innerHTML = `
+      <div id="admin-editar-inicio-modal" role="dialog">
+        <h3>✏️ Corregir hora de inicio</h3>
+        <div class="admin-modal-sub">
+          <strong>${Utils.escapeHtml(placa)}</strong> · ${Utils.escapeHtml(nombreServ)}<br>
+          Ajusta la hora real en que el técnico comenzó este servicio.
+        </div>
+        <div class="admin-modal-field">
+          <label>Hora de inicio</label>
+          <input type="datetime-local" id="admin-modal-inicio-val"
+            value="${this.toDatetimeLocal(s.hora_inicio)}" />
+        </div>
+        <div class="admin-modal-msg" id="admin-modal-msg"></div>
+        <div class="admin-modal-actions">
+          <button class="admin-modal-cancel" id="admin-modal-cancel">Cancelar</button>
+          <button class="admin-modal-save" id="admin-modal-save">Guardar</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(backdrop);
+
+    backdrop.addEventListener('click', e => { if (e.target === backdrop) backdrop.remove(); });
+    document.getElementById('admin-modal-cancel').addEventListener('click', () => backdrop.remove());
+
+    document.getElementById('admin-modal-save').addEventListener('click', async () => {
+      const val = document.getElementById('admin-modal-inicio-val').value;
+      const msg = document.getElementById('admin-modal-msg');
+      const btn = document.getElementById('admin-modal-save');
+
+      if (!val) { msg.innerHTML = '<span class="admin-modal-err">Ingresa una hora válida.</span>'; return; }
+      const nueva = new Date(val);
+      if (nueva >= new Date()) { msg.innerHTML = '<span class="admin-modal-err">La hora no puede ser en el futuro.</span>'; return; }
+
+      btn.disabled = true; btn.textContent = 'Guardando…';
+
+      const ok = await this.guardarHoraInicio(servicioId, nueva.toISOString());
+      if (ok) {
+        msg.innerHTML = '<span class="admin-modal-ok">✓ Guardado. Actualizando…</span>';
+        setTimeout(() => { backdrop.remove(); this.renderTecnicos(); }, 800);
+      } else {
+        btn.disabled = false; btn.textContent = 'Guardar';
+        msg.innerHTML = '<span class="admin-modal-err">Error al guardar. Intenta de nuevo.</span>';
+      }
+    });
+  },
+
+  /** Actualiza hora_inicio en BD y estado local. */
+  async guardarHoraInicio(servicioId, nuevaHoraInicio) {
+    try {
+      const { error } = await supabaseClient
+        .from('servicios_orden')
+        .update({ hora_inicio: nuevaHoraInicio })
+        .eq('id', servicioId);
+
+      if (error) throw error;
+
+      // Actualizar estado local para que renderTecnicos use el nuevo valor
+      const idx = this.state.servicios.findIndex(s => s.id === servicioId);
+      if (idx !== -1) this.state.servicios[idx].hora_inicio = nuevaHoraInicio;
+
+      Utils.log(`hora_inicio corregida para servicio ${servicioId}: ${nuevaHoraInicio}`);
+      return true;
+    } catch (err) {
+      Utils.log('Error guardando hora_inicio:', err);
+      return false;
     }
   },
 };
