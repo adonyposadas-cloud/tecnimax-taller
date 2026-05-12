@@ -131,7 +131,8 @@ const Preventivo = {
 
         supabaseClient
           .from('gps_km')
-          .select('placa, fecha, metros_registrado'),
+          .select('placa, fecha, metros_registrado')
+          .limit(5000),
       ]);
 
       clearTimeout(timeoutId);
