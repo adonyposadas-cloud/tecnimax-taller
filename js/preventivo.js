@@ -12,13 +12,12 @@ const Preventivo = {
 
   state: {
     profile: null,
-    ordenes: [],        // con join vehiculos
-    servicios: [],      // servicios_orden completados (solo los que tienen hora_fin)
-    catalogo: [],       // catalogo_servicios
-    gpsKm: [],          // gps_km completo
+    rpcData: [],     // resultado de resumen_km_preventivo(): { placa, servicio_id, ultima_fecha, km_desde, veces }
+    ordenes: [],     // con join vehiculos — solo para obtener marca/modelo/año
+    catalogo: [],    // catalogo_servicios — para nombres de servicio
     filtroPlaca: '',
     soloConGps: false,
-    resumenFlota: [],   // construido en construirResumen()
+    resumenFlota: [],
     expandidas: new Set(),
   },
 
@@ -96,60 +95,49 @@ const Preventivo = {
   async cargarTodo() {
     const loading = document.getElementById('prev-loading');
     const main = document.getElementById('prev-main');
-    if (loading) loading.hidden = false;
+    if (loading) {
+      loading.hidden = false;
+      loading.innerHTML = `<div class="prev-spinner"></div><div>Cargando datos de flota…</div>`;
+    }
     if (main) main.hidden = true;
 
-    // Timeout de diagnóstico: si en 12s no cargó, muestra qué falló
-    let timedOut = false;
     const timeoutId = setTimeout(() => {
-      timedOut = true;
       if (loading && !loading.hidden) {
         loading.innerHTML = `
           <p style="color:#ffc107;text-align:center;font-size:0.9rem;">
             ⏱ La carga está tardando más de lo esperado.<br>
-            Revisa la consola del navegador (F12 → Console) para ver el error.
+            Revisa la consola (F12 → Console) para ver el error.
           </p>`;
       }
-    }, 12000);
+    }, 15000);
 
     try {
-      const [ordenesR, serviciosR, catalogoR, gpsR] = await Promise.all([
+      const [rpcR, ordenesR, catalogoR] = await Promise.all([
+        // RPC: toda la lógica de km se calcula en Postgres — escala sin límite
+        supabaseClient.rpc('resumen_km_preventivo'),
+
+        // Órdenes: solo para obtener marca/modelo/año de cada placa
         supabaseClient
           .from('ordenes')
-          .select('num_orden, placa, vehiculos(marca, modelo, anio)'),
+          .select('placa, vehiculos(marca, modelo, anio)'),
 
-        // Sin .not() para evitar combinaciones problemáticas con Supabase;
-        // filtramos hora_fin null en el cliente
-        supabaseClient
-          .from('servicios_orden')
-          .select('id, num_orden, servicio_id, estado, hora_fin, tecnico_id')
-          .eq('estado', 'completado'),
-
+        // Catálogo: nombres de servicios
         supabaseClient
           .from('catalogo_servicios')
           .select('id, nombre'),
-
-        supabaseClient
-          .from('gps_km')
-          .select('placa, fecha, metros_registrado')
-          .limit(5000),
       ]);
 
       clearTimeout(timeoutId);
-      if (timedOut) return; // si ya se mostró el error, no continuar
 
-      if (ordenesR.error)  throw new Error(`ordenes: ${ordenesR.error.message}`);
-      if (serviciosR.error) throw new Error(`servicios_orden: ${serviciosR.error.message}`);
+      if (rpcR.error)     throw new Error(`RPC resumen_km_preventivo: ${rpcR.error.message}`);
+      if (ordenesR.error) throw new Error(`ordenes: ${ordenesR.error.message}`);
       if (catalogoR.error) throw new Error(`catalogo_servicios: ${catalogoR.error.message}`);
-      if (gpsR.error)      throw new Error(`gps_km: ${gpsR.error.message}`);
 
-      this.state.ordenes   = ordenesR.data || [];
-      // Filtro client-side: solo los que tienen hora_fin registrada
-      this.state.servicios = (serviciosR.data || []).filter(s => s.hora_fin != null);
-      this.state.catalogo  = catalogoR.data || [];
-      this.state.gpsKm     = gpsR.data      || [];
+      this.state.rpcData  = rpcR.data    || [];
+      this.state.ordenes  = ordenesR.data || [];
+      this.state.catalogo = catalogoR.data || [];
 
-      Utils.log(`Preventivo: ${this.state.ordenes.length} órdenes, ${this.state.servicios.length} servicios completados, ${this.state.gpsKm.length} registros GPS.`);
+      Utils.log(`Preventivo cargado: ${this.state.rpcData.length} filas RPC, ${this.state.ordenes.length} órdenes.`);
 
     } catch (err) {
       clearTimeout(timeoutId);
@@ -157,81 +145,58 @@ const Preventivo = {
       if (loading) {
         loading.innerHTML = `
           <p style="color:#f87171;text-align:center;padding:20px;font-size:0.88rem;">
-            ❌ Error cargando datos:<br><strong>${Utils.escapeHtml(err.message || String(err))}</strong>
+            ❌ Error: <strong>${Utils.escapeHtml(err.message || String(err))}</strong>
           </p>`;
         loading.hidden = false;
         if (main) main.hidden = true;
-        return;
       }
-    } finally {
-      clearTimeout(timeoutId);
-      if (!timedOut) {
-        if (loading) loading.hidden = true;
-        if (main) main.hidden = false;
-      }
+      return;
     }
+
+    if (loading) loading.hidden = true;
+    if (main) main.hidden = false;
   },
 
   // ==================== CONSTRUCCIÓN DEL RESUMEN ====================
   /**
-   * Por cada placa, construye la lista de servicios que se le han hecho:
-   * - última fecha de realización
-   * - km acumulados desde esa fecha hasta hoy
-   * - cuántas veces se realizó en total
-   *
-   * Resultado ordenado: vehículos con mayor km en su servicio más antiguo
-   * aparecen primero (los que más necesitan atención).
+   * Agrupa los resultados del RPC por placa y arma la estructura de resumenFlota.
+   * El cálculo de km_desde ya viene hecho desde Postgres — no hay lógica GPS aquí.
    */
   construirResumen() {
-    // Mapa rápido: num_orden → orden
-    const ordenPorNum = new Map(this.state.ordenes.map(o => [o.num_orden, o]));
-
-    // Mapa: placa → Map<servicio_id, { ultimaFecha, count }>
-    const placaServicios = new Map();
-
-    this.state.servicios.forEach(s => {
-      const orden = ordenPorNum.get(s.num_orden);
-      if (!orden) return;
-      const placa = orden.placa;
-      if (!placa) return;
-
-      if (!placaServicios.has(placa)) placaServicios.set(placa, new Map());
-      const mapa = placaServicios.get(placa);
-
-      const prev = mapa.get(s.servicio_id);
-      const esNuevo = !prev || s.hora_fin > prev.ultimaFecha;
-
-      mapa.set(s.servicio_id, {
-        ultimaFecha: esNuevo ? s.hora_fin : prev.ultimaFecha,
-        count: (prev?.count || 0) + 1,
-      });
+    // Mapa placa → info del vehículo (marca/modelo/año)
+    const vehiculoPorPlaca = new Map();
+    this.state.ordenes.forEach(o => {
+      if (!vehiculoPorPlaca.has(o.placa) && o.vehiculos) {
+        const v = o.vehiculos;
+        vehiculoPorPlaca.set(o.placa, [v.marca, v.modelo, v.anio ? String(v.anio) : null]
+          .filter(Boolean).join(' ') || '—');
+      }
     });
 
-    // Construir array de vehículos
+    // Mapa placa → Map<servicio_id, row>
+    const porPlaca = new Map();
+    this.state.rpcData.forEach(row => {
+      if (!porPlaca.has(row.placa)) porPlaca.set(row.placa, []);
+      porPlaca.get(row.placa).push(row);
+    });
+
     const resumen = [];
+    porPlaca.forEach((filas, placa) => {
+      const vehiculoTxt = vehiculoPorPlaca.get(placa) || '—';
+      const tieneGps = filas.some(f => f.km_desde !== null && Number(f.km_desde) > 0);
 
-    placaServicios.forEach((mapaServicios, placa) => {
-      const orden = this.state.ordenes.find(o => o.placa === placa);
-      const v = orden?.vehiculos || {};
-      const vehiculoTxt = [v.marca, v.modelo, v.anio ? String(v.anio) : null]
-        .filter(Boolean).join(' ') || '—';
-
-      const tieneGps = this.state.gpsKm.some(g => g.placa === placa);
-
-      const serviciosArr = [];
-      mapaServicios.forEach((data, servicio_id) => {
-        const cat = this.state.catalogo.find(c => String(c.id) === String(servicio_id));
-        const kmDesde = tieneGps ? this.calcularKmDesde(placa, data.ultimaFecha) : null;
-        serviciosArr.push({
-          id: servicio_id,
+      const serviciosArr = filas.map(f => {
+        const cat = this.state.catalogo.find(c => String(c.id) === String(f.servicio_id));
+        return {
+          id: f.servicio_id,
           nombre: cat?.nombre || '(servicio eliminado)',
-          ultimaFecha: data.ultimaFecha,
-          kmDesde,
-          vecesRealizado: data.count,
-        });
+          ultimaFecha: f.ultima_fecha,
+          kmDesde: f.km_desde !== null ? Number(f.km_desde) : null,
+          vecesRealizado: Number(f.veces),
+        };
       });
 
-      // Ordenar servicios: mayor km primero (sin GPS al final)
+      // Mayor km primero, sin GPS al final
       serviciosArr.sort((a, b) => {
         if (a.kmDesde === null && b.kmDesde === null) return 0;
         if (a.kmDesde === null) return 1;
@@ -242,7 +207,7 @@ const Preventivo = {
       resumen.push({ placa, vehiculoTxt, tieneGps, servicios: serviciosArr });
     });
 
-    // Ordenar flota: mayor km de su servicio más antiguo primero
+    // Flota ordenada: vehículo con mayor km en su servicio más crítico arriba
     resumen.sort((a, b) => {
       const maxA = a.servicios.find(s => s.kmDesde !== null)?.kmDesde ?? -1;
       const maxB = b.servicios.find(s => s.kmDesde !== null)?.kmDesde ?? -1;
@@ -370,20 +335,7 @@ const Preventivo = {
     `;
   },
 
-  // ==================== GPS KM (mismo helper que historial.js) ====================
-  calcularKmDesde(placa, fechaISO) {
-    if (!placa || !fechaISO) return null;
-    const fechaLimite = fechaISO.substring(0, 10);
-    const metros = (this.state.gpsKm || [])
-      .filter(g =>
-        g.placa === placa &&
-        g.fecha > fechaLimite &&
-        g.metros_registrado !== 1001
-      )
-      .reduce((sum, g) => sum + (g.metros_registrado || 0), 0);
-    return Math.round(metros / 100) / 10;
-  },
-
+  // ==================== HELPERS ====================
   formatKm(km) {
     if (km === null || km === undefined) return '—';
     if (km < 1) return '< 1 km';
