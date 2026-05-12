@@ -860,6 +860,11 @@ const Historial = {
       })
       .reduce((acc, p) => acc + Math.round((new Date(p.hora_reanudacion) - new Date(p.hora_pausa)) / 60000), 0);
 
+    // Costo mano de obra total de la orden
+    const costoOrden = serviciosOrden
+      .filter(s => s.estado === 'completado' && s.tiempo_real_min)
+      .reduce((acc, s) => acc + this.calcularCosto(s.tecnico_id, s.tiempo_real_min), 0);
+
     let resumenHtml = `
       <div class="hist-orden-resumen-totales">
         <div class="hist-resumen-item">
