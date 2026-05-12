@@ -2248,9 +2248,9 @@ const Admin = {
     const s = this.state.servicios.find(x => x.id === servicioId);
     if (!s) return;
 
-    const pausa = this.pausaAbierta(servicioId);
+    const pausa = this.pausaAbierta(servicioId) || this.ultimaPausaDelServicio(servicioId);
     if (!pausa) {
-      alert('No se encontró una pausa abierta para este servicio.');
+      alert('No se encontró ninguna pausa registrada para este servicio.');
       return;
     }
 
