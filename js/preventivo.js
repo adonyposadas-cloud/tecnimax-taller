@@ -26,8 +26,27 @@ const Preventivo = {
   async init() {
     Utils.log('Iniciando vista Preventivo...');
 
+    // Mostrar estado de autenticación mientras verifica
+    const loading = document.getElementById('prev-loading');
+    if (loading) {
+      loading.hidden = false;
+      loading.innerHTML = `
+        <div class="prev-spinner"></div>
+        <div>Verificando sesión…</div>`;
+    }
+
     const profile = await Auth.requireAuth();
-    if (!profile) return;
+    if (!profile) {
+      if (loading) {
+        loading.hidden = false;
+        loading.innerHTML = `
+          <p style="color:#fbbf24;text-align:center;font-size:0.9rem;">
+            🔐 Sesión no activa.<br>
+            <a href="admin.html" style="color:#5bc8f5;">Inicia sesión desde el panel</a>
+          </p>`;
+      }
+      return;
+    }
 
     if (!['admin', 'jefe_pista'].includes(profile.rol)) {
       alert('No tienes permisos para ver esta sección.');
