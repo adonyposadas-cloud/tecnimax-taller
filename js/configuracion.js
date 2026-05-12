@@ -636,7 +636,7 @@ const Configuracion = {
   async cargarUsuarios() {
     const { data, error } = await supabaseClient
       .from('usuarios')
-      .select('id, nombre, codigo, rol, activo')
+      .select('id, nombre, codigo, rol, activo, precio_hora')
       .order('rol', { ascending: true })
       .order('nombre', { ascending: true });
     if (error) throw error;
@@ -668,6 +668,17 @@ const Configuracion = {
       const btnReset = esYo
         ? '<span class="usuario-row-yo" title="No podés resetear tu propio PIN desde aquí">— Eres tú —</span>'
         : `<button class="btn-secondary btn-mini" data-reset-pin data-uid="${Utils.escapeHtml(u.id)}" data-nombre="${Utils.escapeHtml(u.nombre)}" data-codigo="${Utils.escapeHtml(u.codigo || '')}">🔑 Resetear PIN</button>`;
+      const esTecnico = u.rol === 'tecnico';
+      const precioHoraHtml = esTecnico ? `
+        <div class="usuario-precio-wrap">
+          <label class="usuario-precio-label">L./hora</label>
+          <input type="number" class="usuario-precio-input" min="0" step="0.01"
+            placeholder="0.00"
+            value="${u.precio_hora != null ? Number(u.precio_hora).toFixed(2) : ''}"
+            data-uid="${Utils.escapeHtml(u.id)}" />
+          <button class="btn-secondary btn-mini usuario-precio-btn" data-uid="${Utils.escapeHtml(u.id)}">💾</button>
+        </div>` : '';
+
       return `
         <div class="usuario-row${inactivo ? ' usuario-row-inactivo' : ''}">
           <div class="usuario-row-info">
@@ -678,6 +689,7 @@ const Configuracion = {
             </div>
             <div class="usuario-row-codigo">${Utils.escapeHtml(u.codigo || '—')}</div>
           </div>
+          ${precioHoraHtml}
           <div class="usuario-row-acciones">${btnReset}</div>
         </div>`;
     }).join('');
@@ -692,6 +704,56 @@ const Configuracion = {
         });
       });
     });
+
+    // Bindear botones de guardar precio/hora
+    list.querySelectorAll('.usuario-precio-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const uid = btn.dataset.uid;
+        const input = list.querySelector(`.usuario-precio-input[data-uid="${uid}"]`);
+        if (!input) return;
+        const val = parseFloat(input.value);
+        if (isNaN(val) || val < 0) { input.style.borderColor = '#f87171'; return; }
+        input.style.borderColor = '';
+        btn.disabled = true; btn.textContent = '⏳';
+        const { error } = await supabaseClient
+          .from('usuarios')
+          .update({ precio_hora: val })
+          .eq('id', uid);
+        if (error) {
+          btn.textContent = '❌'; setTimeout(() => { btn.textContent = '💾'; btn.disabled = false; }, 2000);
+        } else {
+          btn.textContent = '✓'; setTimeout(() => { btn.textContent = '💾'; btn.disabled = false; }, 1500);
+          const u = this.state.usuarios.find(x => x.id === uid);
+          if (u) u.precio_hora = val;
+        }
+      });
+    });
+
+    // Inyectar CSS si no existe
+    if (!document.getElementById('cfg-precio-hora-css')) {
+      const s = document.createElement('style');
+      s.id = 'cfg-precio-hora-css';
+      s.textContent = `
+        .usuario-precio-wrap {
+          display:flex;align-items:center;gap:6px;
+          margin: 4px 0 0;
+        }
+        .usuario-precio-label {
+          font-size:0.72rem;color:rgba(255,255,255,0.45);white-space:nowrap;
+        }
+        .usuario-precio-input {
+          width:90px;padding:4px 8px;border-radius:6px;
+          background:rgba(255,255,255,0.07);
+          border:1px solid rgba(255,255,255,0.15);
+          color:#e8f0fe;font-size:0.85rem;font-family:'Manrope',sans-serif;
+          text-align:right;
+        }
+        .usuario-precio-input:focus { outline:none;border-color:#2f7fe0; }
+        .usuario-precio-input::-webkit-inner-spin-button,
+        .usuario-precio-input::-webkit-outer-spin-button { opacity:0.4; }
+      `;
+      document.head.appendChild(s);
+    }
   },
 
   abrirModalResetPin(usuario) {
