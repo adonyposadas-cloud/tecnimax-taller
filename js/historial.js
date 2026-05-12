@@ -90,6 +90,74 @@ const Historial = {
           border: 1px solid rgba(91,200,245,0.20);
           border-radius: 8px; margin-left: 6px; font-weight: 500;
         }
+
+        /* ===== Modal edición de pausas ===== */
+        .hist-pausa-edit-btn {
+          background: none; border: none; cursor: pointer;
+          font-size: 0.8rem; opacity: 0.45; padding: 2px 4px;
+          border-radius: 4px; transition: opacity 0.15s, background 0.15s;
+          line-height: 1; flex-shrink: 0;
+        }
+        .hist-pausa-edit-btn:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+
+        #hist-pausa-modal-backdrop {
+          position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+          z-index: 1000; display: flex; align-items: center; justify-content: center;
+          padding: 16px;
+        }
+        #hist-pausa-modal {
+          background: #0d2137; border: 1px solid rgba(47,127,224,0.4);
+          border-radius: 12px; padding: 24px; width: 100%; max-width: 420px;
+          box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+        }
+        #hist-pausa-modal h3 {
+          margin: 0 0 6px; font-family: 'Oswald', sans-serif;
+          font-size: 1rem; color: #e8f0fe; font-weight: 600;
+        }
+        #hist-pausa-modal .hist-modal-sub {
+          font-size: 0.78rem; color: rgba(255,255,255,0.45);
+          margin-bottom: 20px;
+        }
+        .hist-modal-field { margin-bottom: 16px; }
+        .hist-modal-field label {
+          display: block; font-size: 0.75rem; font-weight: 600;
+          letter-spacing: 0.05em; text-transform: uppercase;
+          color: rgba(255,255,255,0.5); margin-bottom: 6px;
+        }
+        .hist-modal-field input[type="datetime-local"] {
+          width: 100%; padding: 9px 12px; box-sizing: border-box;
+          background: rgba(255,255,255,0.07);
+          border: 1px solid rgba(255,255,255,0.15);
+          border-radius: 8px; color: #e8f0fe;
+          font-family: 'Manrope', sans-serif; font-size: 0.9rem;
+          color-scheme: dark;
+        }
+        .hist-modal-field input[type="datetime-local"]:focus {
+          outline: none; border-color: #2f7fe0;
+        }
+        .hist-modal-actions {
+          display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;
+        }
+        .hist-modal-btn-cancel {
+          padding: 8px 18px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15);
+          background: transparent; color: rgba(255,255,255,0.6);
+          font-family: 'Manrope', sans-serif; font-size: 0.88rem; cursor: pointer;
+        }
+        .hist-modal-btn-cancel:hover { background: rgba(255,255,255,0.07); }
+        .hist-modal-btn-save {
+          padding: 8px 22px; border-radius: 8px; border: none;
+          background: #2f7fe0; color: #fff;
+          font-family: 'Manrope', sans-serif; font-size: 0.88rem;
+          font-weight: 600; cursor: pointer; transition: background 0.15s;
+        }
+        .hist-modal-btn-save:hover { background: #1a6dcb; }
+        .hist-modal-btn-save:disabled { background: #1a3a5c; color: rgba(255,255,255,0.4); cursor: not-allowed; }
+        .hist-modal-error {
+          font-size: 0.78rem; color: #f87171; margin-top: 10px; text-align: center;
+        }
+        .hist-modal-ok {
+          font-size: 0.78rem; color: #86efac; margin-top: 10px; text-align: center;
+        }
       `;
       document.head.appendChild(s);
     }
@@ -655,6 +723,15 @@ const Historial = {
         if (url) this.abrirLightbox(url, nota);
       });
     });
+
+    // Bind clicks en botones de editar pausa (admin)
+    list.querySelectorAll('.hist-pausa-edit-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const pausaId = parseInt(btn.dataset.pausaId, 10);
+        if (!isNaN(pausaId)) this.abrirModalPausa(pausaId);
+      });
+    });
   },
 
   renderCardOrden(orden) {
@@ -945,15 +1022,23 @@ const Historial = {
       ? ` · pausado por ${pausadoPor}`
       : '';
 
+    const esAdmin = this.state.profile?.rol === 'admin';
+    const editBtn = esAdmin
+      ? `<button class="hist-pausa-edit-btn" data-pausa-id="${p.id}" title="Corregir horario de pausa">✏️</button>`
+      : '';
+
     return `
       <div class="hist-pausa-row">
         <div>
           <div class="hist-pausa-motivo">⏸ ${Utils.escapeHtml(motivoFmt)}${detalleExtra ? ' ' + Utils.escapeHtml(detalleExtra) : ''}</div>
           <div class="hist-pausa-detalle">${Utils.escapeHtml(nombreServ)} · ${Utils.escapeHtml(tecnico)}${Utils.escapeHtml(pausadoPorTxt)}</div>
         </div>
-        <div class="hist-pausa-tiempo">
-          <div>${duracionFmt}</div>
-          <div style="font-size: 0.7rem; opacity: 0.7;">${horaPausa}${horaReanudacion ? ' → ' + horaReanudacion : ''}</div>
+        <div class="hist-pausa-tiempo" style="display:flex;align-items:center;gap:8px;">
+          <div>
+            <div>${duracionFmt}</div>
+            <div style="font-size: 0.7rem; opacity: 0.7;">${horaPausa}${horaReanudacion ? ' → ' + horaReanudacion : ''}</div>
+          </div>
+          ${editBtn}
         </div>
       </div>
     `;
@@ -1119,6 +1204,171 @@ const Historial = {
     modal.hidden = true;
     if (img) img.src = '';
     document.body.style.overflow = '';
+  },
+
+  // ==================== EDICIÓN DE PAUSAS (admin) ====================
+
+  /** Convierte un ISO timestamp a formato YYYY-MM-DDTHH:MM en hora local,
+   *  compatible con <input type="datetime-local">. */
+  toDatetimeLocal(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  },
+
+  /** Abre el modal de edición de una pausa dado su ID. */
+  abrirModalPausa(pausaId) {
+    const pausa = this.state.pausas.find(p => p.id === pausaId);
+    if (!pausa) return;
+
+    // Limpiar modal anterior si existe
+    document.getElementById('hist-pausa-modal-backdrop')?.remove();
+
+    const backdrop = document.createElement('div');
+    backdrop.id = 'hist-pausa-modal-backdrop';
+    backdrop.innerHTML = `
+      <div id="hist-pausa-modal" role="dialog" aria-modal="true">
+        <h3>✏️ Corregir pausa</h3>
+        <div class="hist-modal-sub">
+          Corrige el horario real de inicio y fin de la pausa.<br>
+          El tiempo trabajado se recalculará automáticamente.
+        </div>
+
+        <div class="hist-modal-field">
+          <label>Inicio de pausa</label>
+          <input type="datetime-local" id="hist-modal-inicio"
+            value="${this.toDatetimeLocal(pausa.hora_pausa)}" />
+        </div>
+
+        <div class="hist-modal-field">
+          <label>Fin de pausa (reanudación)</label>
+          <input type="datetime-local" id="hist-modal-fin"
+            value="${this.toDatetimeLocal(pausa.hora_reanudacion)}" />
+        </div>
+
+        <div id="hist-modal-msg" style="min-height:20px;"></div>
+
+        <div class="hist-modal-actions">
+          <button class="hist-modal-btn-cancel" id="hist-modal-cancel">Cancelar</button>
+          <button class="hist-modal-btn-save" id="hist-modal-save">Guardar</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(backdrop);
+
+    // Cerrar al click en el backdrop (fuera del modal)
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) backdrop.remove();
+    });
+    document.getElementById('hist-modal-cancel').addEventListener('click', () => backdrop.remove());
+    document.addEventListener('keydown', function cerrarEsc(e) {
+      if (e.key === 'Escape') { backdrop.remove(); document.removeEventListener('keydown', cerrarEsc); }
+    });
+
+    document.getElementById('hist-modal-save').addEventListener('click', async () => {
+      const inicioStr = document.getElementById('hist-modal-inicio').value;
+      const finStr    = document.getElementById('hist-modal-fin').value;
+      const msg       = document.getElementById('hist-modal-msg');
+      const btnSave   = document.getElementById('hist-modal-save');
+
+      if (!inicioStr || !finStr) {
+        msg.innerHTML = '<div class="hist-modal-error">Completa ambas fechas.</div>';
+        return;
+      }
+      const dInicio = new Date(inicioStr);
+      const dFin    = new Date(finStr);
+      if (dFin <= dInicio) {
+        msg.innerHTML = '<div class="hist-modal-error">El fin debe ser después del inicio.</div>';
+        return;
+      }
+
+      btnSave.disabled = true;
+      btnSave.textContent = 'Guardando…';
+      msg.innerHTML = '';
+
+      const ok = await this.guardarPausaEditada(pausaId, dInicio.toISOString(), dFin.toISOString());
+
+      if (ok) {
+        msg.innerHTML = '<div class="hist-modal-ok">✓ Guardado correctamente</div>';
+        setTimeout(() => backdrop.remove(), 900);
+      } else {
+        btnSave.disabled = false;
+        btnSave.textContent = 'Guardar';
+        msg.innerHTML = '<div class="hist-modal-error">Error al guardar. Intenta de nuevo.</div>';
+      }
+    });
+  },
+
+  /** Guarda la pausa editada y recalcula tiempo_real_min del servicio. */
+  async guardarPausaEditada(pausaId, nuevaHoraPausa, nuevaHoraReanudacion) {
+    try {
+      // 1. Actualizar historial_pausas
+      const { error: errPausa } = await supabaseClient
+        .from('historial_pausas')
+        .update({ hora_pausa: nuevaHoraPausa, hora_reanudacion: nuevaHoraReanudacion })
+        .eq('id', pausaId);
+
+      if (errPausa) throw errPausa;
+
+      // 2. Actualizar estado local
+      const pausaIdx = this.state.pausas.findIndex(p => p.id === pausaId);
+      if (pausaIdx !== -1) {
+        this.state.pausas[pausaIdx].hora_pausa = nuevaHoraPausa;
+        this.state.pausas[pausaIdx].hora_reanudacion = nuevaHoraReanudacion;
+      }
+
+      // 3. Recalcular tiempo_real_min del servicio afectado
+      const pausa = this.state.pausas[pausaIdx];
+      if (pausa) await this.recalcularTiempoServicio(pausa.servicio_orden_id);
+
+      // 4. Re-render con los datos actualizados
+      this.aplicarFiltros();
+      return true;
+
+    } catch (err) {
+      Utils.log('Error guardando pausa editada:', err);
+      return false;
+    }
+  },
+
+  /** Recalcula tiempo_real_min = (hora_fin - hora_inicio) - suma_pausas
+   *  y lo guarda en servicios_orden. */
+  async recalcularTiempoServicio(servicioOrdenId) {
+    const servicio = this.state.servicios.find(s => s.id === servicioOrdenId);
+    if (!servicio || !servicio.hora_inicio || !servicio.hora_fin) return;
+
+    // Tiempo total transcurrido en minutos
+    const totalElapsedMin = Math.round(
+      (new Date(servicio.hora_fin) - new Date(servicio.hora_inicio)) / 60000
+    );
+
+    // Suma de pausas completas de este servicio (con estado local actualizado)
+    const pausasServicio = this.state.pausas.filter(
+      p => p.servicio_orden_id === servicioOrdenId && p.hora_pausa && p.hora_reanudacion
+    );
+    const totalPausasMin = pausasServicio.reduce((acc, p) => {
+      return acc + Math.round((new Date(p.hora_reanudacion) - new Date(p.hora_pausa)) / 60000);
+    }, 0);
+
+    const nuevoTiempoReal = Math.max(0, totalElapsedMin - totalPausasMin);
+
+    // Actualizar BD
+    const { error } = await supabaseClient
+      .from('servicios_orden')
+      .update({ tiempo_real_min: nuevoTiempoReal })
+      .eq('id', servicioOrdenId);
+
+    if (error) {
+      Utils.log('Error actualizando tiempo_real_min:', error);
+      return;
+    }
+
+    // Actualizar estado local
+    const idx = this.state.servicios.findIndex(s => s.id === servicioOrdenId);
+    if (idx !== -1) this.state.servicios[idx].tiempo_real_min = nuevoTiempoReal;
+
+    Utils.log(`tiempo_real_min recalculado: ${nuevoTiempoReal} min para servicio ${servicioOrdenId}`);
   },
 
   // ==================== GPS KM ====================
