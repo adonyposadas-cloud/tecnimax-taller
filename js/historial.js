@@ -32,7 +32,9 @@ const Historial = {
     cancelaciones: [],
     fotos: [],            // Fotos de los servicios (Fase Fotos)
     fotosUrls: {},        // Cache de URLs firmadas { storage_path: { url, expira_en } }
-    gpsKm: [],            // Registros de gps_km (placa, fecha, metros_registrado)
+    gpsKm: [],            // Registros GPS de la placa actualmente cargada
+    gpsKmCache: {},       // Cache por placa: { 'TAXI 0384': [...records] }
+    gpsKmPlacaCargada: null, // Qué placa está en gpsKm ahora
 
     // Filtros activos — TODOS combinables, AND lógico entre ellos
     filtros: {
@@ -356,7 +358,7 @@ const Historial = {
     document.getElementById('hist-empty').hidden = true;
 
     try {
-      const [ordenesR, serviciosR, usuariosR, catalogoR, cancR, pausasR, fotosR, gpsKmR] = await Promise.all([
+      const [ordenesR, serviciosR, usuariosR, catalogoR, cancR, pausasR, fotosR] = await Promise.all([
         // Órdenes con join al vehículo
         supabaseClient
           .from('ordenes')
@@ -395,11 +397,6 @@ const Historial = {
         supabaseClient
           .from('fotos_servicio')
           .select('id, servicio_orden_id, tipo, storage_path, subida_por, subida_en, notas'),
-
-        // GPS km — carga completa para calcular km desde cada servicio
-        supabaseClient
-          .from('gps_km')
-          .select('placa, fecha, metros_registrado'),
       ]);
 
       if (ordenesR.error) throw ordenesR.error;
@@ -416,9 +413,9 @@ const Historial = {
       this.state.cancelaciones = (cancR && !cancR.error) ? (cancR.data || []) : [];
       this.state.pausas = pausasR.data || [];
       this.state.fotos = (fotosR && !fotosR.error) ? (fotosR.data || []) : [];
-      this.state.gpsKm = (gpsKmR && !gpsKmR.error) ? (gpsKmR.data || []) : [];
+      // GPS se carga por demanda en cargarGpsPlaca() — no aquí
 
-      Utils.log(`Historial cargado: ${this.state.ordenes.length} órdenes, ${this.state.servicios.length} servicios, ${this.state.pausas.length} pausas, ${this.state.fotos.length} fotos, ${this.state.gpsKm.length} registros GPS.`);
+      Utils.log(`Historial cargado: ${this.state.ordenes.length} órdenes, ${this.state.servicios.length} servicios, ${this.state.pausas.length} pausas, ${this.state.fotos.length} fotos.`);
     } catch (err) {
       Utils.log('Error cargando historial:', err);
       document.getElementById('hist-loading').innerHTML = `<p style="color: var(--rojo-urgente);">Error cargando datos: ${Utils.escapeHtml(err.message || '')}</p>`;
@@ -436,7 +433,7 @@ const Historial = {
   //  - tiene al menos un servicio del catálogo seleccionado (si hay)
   // Si AMBOS técnico y servicio están seleccionados, debe haber UN servicio
   // con ese tecnico_id Y ese servicio_id (no basta con que existan por separado).
-  aplicarFiltros() {
+  async aplicarFiltros() {
     const f = this.state.filtros;
     const periodo = this.state.periodo;
     const estadoFilter = this.state.estado;
@@ -487,6 +484,19 @@ const Historial = {
 
       return true;
     });
+
+    // GPS por demanda: solo si todos los resultados son de una única placa
+    // (típicamente cuando hay filtro de placa activo). Escala sin límite.
+    const placasUnicas = new Set(resultado.map(o => o.placa).filter(Boolean));
+    const placaFija = placasUnicas.size === 1 ? [...placasUnicas][0] : null;
+
+    if (placaFija) {
+      await this.cargarGpsPlaca(placaFija);
+    } else {
+      // Múltiples placas o sin resultados: limpiar GPS del estado
+      this.state.gpsKm = [];
+      this.state.gpsKmPlacaCargada = null;
+    }
 
     // Refrescar panel de estadísticas
     this.actualizarStatsCard();
@@ -1112,6 +1122,43 @@ const Historial = {
   },
 
   // ==================== GPS KM ====================
+  /**
+   * Carga los registros de gps_km para una placa específica.
+   * Usa caché en memoria para no re-consultar en cada cambio de filtro.
+   * Solo ~50-200 filas por placa — escala sin límite de tabla.
+   */
+  async cargarGpsPlaca(placa) {
+    if (!placa) return;
+
+    // Ya está en caché
+    if (this.state.gpsKmCache[placa]) {
+      this.state.gpsKm = this.state.gpsKmCache[placa];
+      this.state.gpsKmPlacaCargada = placa;
+      return;
+    }
+
+    try {
+      const { data, error } = await supabaseClient
+        .from('gps_km')
+        .select('placa, fecha, metros_registrado')
+        .eq('placa', placa);
+
+      if (error) {
+        Utils.log('GPS fetch error:', error);
+        return;
+      }
+
+      const registros = data || [];
+      this.state.gpsKmCache[placa] = registros;  // guardar en caché
+      this.state.gpsKm = registros;
+      this.state.gpsKmPlacaCargada = placa;
+
+      Utils.log(`GPS cargado para ${placa}: ${registros.length} registros.`);
+    } catch (err) {
+      Utils.log('Error inesperado cargando GPS:', err);
+    }
+  },
+
   /**
    * Suma los metros registrados en gps_km para una placa desde una fecha/hora
    * dada hasta hoy, excluyendo registros con valor 1001 (no movió).
