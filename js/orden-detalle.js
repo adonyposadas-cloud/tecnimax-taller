@@ -377,7 +377,7 @@ Hora: ${this.fmtHora()}`;
     try {
       const { data, error } = await supabaseClient
         .from('usuarios')
-        .select('id, nombre, codigo')
+        .select('id, nombre, codigo, precio_hora')
         .in('id', ids);
       if (error) throw error;
       this.state.tecnicos = {};
@@ -1291,6 +1291,44 @@ Hora: ${this.fmtHora()}`;
 
     cont.innerHTML = ordenados.map(s => this.renderServicioCard(s)).join('');
 
+    // Total mano de obra de la orden (solo para admin/jefe)
+    const esAdminJefe = ['admin', 'jefe_pista'].includes(this.state.profile.rol);
+    if (esAdminJefe) {
+      const costoTotal = this.state.servicios
+        .filter(s => s.estado === 'completado' && s.tiempo_real_min && s.tecnico_id)
+        .reduce((acc, s) => {
+          const u = this.state.tecnicos[s.tecnico_id];
+          const ph = u?.precio_hora ? Number(u.precio_hora) : 0;
+          return acc + (ph ? Math.round((s.tiempo_real_min / 60) * ph * 100) / 100 : 0);
+        }, 0);
+
+      if (costoTotal > 0) {
+        const totalEl = document.createElement('div');
+        totalEl.className = 'od-costo-total';
+        totalEl.innerHTML = `
+          <span class="od-costo-label">💰 Total mano de obra</span>
+          <span class="od-costo-valor">L. ${costoTotal.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        `;
+        cont.appendChild(totalEl);
+
+        // CSS si no existe
+        if (!document.getElementById('od-costo-css')) {
+          const st = document.createElement('style');
+          st.id = 'od-costo-css';
+          st.textContent = `
+            .od-costo-total {
+              display:flex;justify-content:space-between;align-items:center;
+              margin-top:12px;padding:10px 14px;border-radius:8px;
+              background:rgba(255,193,7,0.08);border:1px solid rgba(255,193,7,0.25);
+            }
+            .od-costo-label { font-size:0.82rem;color:rgba(255,255,255,0.6); }
+            .od-costo-valor { font-size:1rem;font-weight:700;color:#ffc107; }
+          `;
+          document.head.appendChild(st);
+        }
+      }
+    }
+
     // Bindear botones
     cont.querySelectorAll('[data-action]').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -1391,7 +1429,15 @@ Hora: ${this.fmtHora()}`;
       const tiempoMin = s.tiempo_real_min ? `${s.tiempo_real_min} min` : '—';
       const sospechoso = s.sospechoso ? ' ⚠️' : '';
       const userTxt = u ? `${Utils.escapeHtml(u.nombre)}` : '—';
-      html += `<div class="tecnico-tag otro">${userTxt} · ${tiempoMin}${sospechoso}</div>`;
+      // Costo de mano de obra de este servicio
+      const precioHora = u?.precio_hora ? Number(u.precio_hora) : 0;
+      const costoServ = (precioHora && s.tiempo_real_min)
+        ? Math.round((s.tiempo_real_min / 60) * precioHora * 100) / 100
+        : 0;
+      const costoTxt = costoServ > 0
+        ? ` · <span style="color:#ffc107;font-weight:700;">L. ${costoServ.toLocaleString('es-HN',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>`
+        : '';
+      html += `<div class="tecnico-tag otro">${userTxt} · ${tiempoMin}${sospechoso}${costoTxt}</div>`;
       if (s.observacion) {
         html += `<div class="pausa-info-box" style="background: rgba(255,255,255,0.03); border-color: var(--border);">
                    <div class="pausa-info-detalle"><strong>Observación:</strong> ${Utils.escapeHtml(s.observacion)}</div>
