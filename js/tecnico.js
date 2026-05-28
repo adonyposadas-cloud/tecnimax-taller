@@ -20,11 +20,11 @@ const Tecnico = {
     ordenes: [],
     todasLasOrdenes: [],
     serviciosCatalogo: [],
+    placasConMovimiento: new Set(),  // placas que ya reportaron movimiento GPS post-cierre
     busqueda: '',
     realtimeChannel: null,
     cronometroInterval: null,
     servicioActivo: null,
-    tabActiva: 'taller',  // 'taller' | 'entregar'
   },
 
   // ==================== INIT ====================
@@ -45,52 +45,10 @@ const Tecnico = {
 
     document.getElementById('btn-logout').addEventListener('click', () => Auth.logout());
 
-    this.inyectarTabs();
     await this.cargarCatalogoServicios();
     await this.cargarOrdenes();
     this.bindEventos();
     this.activarRealtime();
-  },
-
-  /**
-   * Inyecta dinámicamente las tabs "En taller" / "Listas p/ entregar"
-   * justo antes de la lista de vehículos. Se hace en JS (no en HTML)
-   * para no requerir cambios al tecnico.html.
-   */
-  inyectarTabs() {
-    const list = document.getElementById('vehiculos-list');
-    if (!list || document.getElementById('tecnico-tabs')) return;
-
-    const tabsHtml = `
-      <div id="tecnico-tabs" class="tecnico-tabs">
-        <button class="tecnico-tab tecnico-tab-active" data-tab="taller" type="button">
-          <span class="tecnico-tab-icon">🔧</span>
-          <span class="tecnico-tab-label">En taller</span>
-          <span class="tecnico-tab-count" id="tab-count-taller">0</span>
-        </button>
-        <button class="tecnico-tab" data-tab="entregar" type="button">
-          <span class="tecnico-tab-icon">🚗</span>
-          <span class="tecnico-tab-label">Listas p/ entregar</span>
-          <span class="tecnico-tab-count tecnico-tab-count-entregar" id="tab-count-entregar">0</span>
-        </button>
-      </div>`;
-    list.insertAdjacentHTML('beforebegin', tabsHtml);
-
-    document.querySelectorAll('.tecnico-tab').forEach(btn => {
-      btn.addEventListener('click', () => this.cambiarTab(btn.dataset.tab));
-    });
-  },
-
-  cambiarTab(tab) {
-    if (tab !== 'taller' && tab !== 'entregar') return;
-    if (this.state.tabActiva === tab) return;
-    this.state.tabActiva = tab;
-
-    document.querySelectorAll('.tecnico-tab').forEach(btn => {
-      btn.classList.toggle('tecnico-tab-active', btn.dataset.tab === tab);
-    });
-
-    this.aplicarFiltro();
   },
 
   // ==================== CATÁLOGO ====================
@@ -113,7 +71,7 @@ const Tecnico = {
       const { data, error } = await supabaseClient
         .from('ordenes')
         .select(`
-          num_orden, placa, prioridad, estado, motivo, creada_en, entregada_en,
+          num_orden, placa, prioridad, estado, motivo, creada_en, cerrada_en,
           vehiculos ( marca, modelo, anio ),
           servicios_orden ( id, estado, servicio_id, tecnico_id, hora_inicio )
         `)
@@ -122,11 +80,22 @@ const Tecnico = {
 
       if (error) throw error;
 
-      // Filtrar localmente: descartamos las completadas YA entregadas
-      // (las completadas pendientes de entrega sí las queremos en la lista)
-      this.state.todasLasOrdenes = (data || []).filter(o =>
-        o.estado !== 'completada' || !o.entregada_en
-      );
+      const todas = data || [];
+
+      // Para las completadas, verificar si la placa ya reportó movimiento GPS
+      // después de la fecha de cierre de la orden.
+      const completadas = todas.filter(o => o.estado === 'completada' && o.cerrada_en);
+      if (completadas.length > 0) {
+        await this.verificarMovimientoGps(completadas);
+      }
+
+      // Filtrar: quitar completadas cuya placa ya reportó movimiento GPS
+      this.state.todasLasOrdenes = todas.filter(o => {
+        if (o.estado !== 'completada') return true;  // activas siempre
+        // Completada: mantener solo si la placa NO reportó movimiento post-cierre
+        return !this.state.placasConMovimiento.has(o.placa);
+      });
+
       this.aplicarFiltro();
       this.detectarServicioActivo();
     } catch (err) {
@@ -134,37 +103,71 @@ const Tecnico = {
     }
   },
 
+  /**
+   * Consulta gps_km para determinar qué placas de órdenes completadas
+   * ya reportaron movimiento (≥ 2000 metros) en algún día posterior
+   * al cierre de la orden. Esas placas ya se fueron del taller.
+   */
+  async verificarMovimientoGps(completadas) {
+    try {
+      // Encontrar la fecha de cierre más antigua para acotar la query
+      const fechasCierre = completadas
+        .map(o => o.cerrada_en?.slice(0, 10))
+        .filter(Boolean)
+        .sort();
+      if (fechasCierre.length === 0) return;
+      const fechaMinCierre = fechasCierre[0];
+
+      // Placas únicas de las completadas
+      const placas = [...new Set(completadas.map(o => o.placa))];
+
+      // Traer registros GPS desde la fecha de cierre más antigua
+      const { data, error } = await supabaseClient
+        .from('gps_km')
+        .select('placa, fecha, metros_registrado')
+        .in('placa', placas)
+        .gte('fecha', fechaMinCierre)
+        .gte('metros_registrado', 2000);
+
+      if (error) {
+        Utils.log('verificarMovimientoGps: error (tolerado):', error.message);
+        return;
+      }
+
+      // Construir set de placas que se movieron post-cierre
+      const gpsData = data || [];
+      const movimiento = new Set();
+
+      for (const o of completadas) {
+        if (movimiento.has(o.placa)) continue;
+        const fechaCierre = o.cerrada_en?.slice(0, 10);
+        if (!fechaCierre) continue;
+
+        // ¿Tiene al menos un registro GPS con movimiento en fecha >= cierre?
+        const seMovio = gpsData.some(g =>
+          g.placa === o.placa && g.fecha >= fechaCierre
+        );
+        if (seMovio) movimiento.add(o.placa);
+      }
+
+      this.state.placasConMovimiento = movimiento;
+      Utils.log(`GPS: ${movimiento.size} placas con movimiento post-cierre de ${placas.length} completadas`);
+    } catch (err) {
+      Utils.log('verificarMovimientoGps: error general (tolerado):', err);
+    }
+  },
+
   aplicarFiltro() {
     const q = this.state.busqueda.trim().toLowerCase();
 
     // Filtro por búsqueda (placa o número)
-    let filtradas = !q
+    this.state.ordenes = !q
       ? this.state.todasLasOrdenes
       : this.state.todasLasOrdenes.filter(o =>
           o.placa.toLowerCase().includes(q) ||
           o.num_orden.toLowerCase().includes(q)
         );
 
-    // Calcular contadores de cada tab (después de búsqueda, antes de filtrar por tab)
-    const enTaller = filtradas.filter(o => !(o.estado === 'completada' && !o.entregada_en));
-    const listasEntregar = filtradas.filter(o => o.estado === 'completada' && !o.entregada_en);
-
-    // Actualizar contadores en las tabs
-    const setTabCount = (id, val) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = val;
-    };
-    setTabCount('tab-count-taller', enTaller.length);
-    setTabCount('tab-count-entregar', listasEntregar.length);
-
-    // Toggle de "destacado" del badge según haya entregas pendientes
-    const tabEntregar = document.querySelector('.tecnico-tab[data-tab="entregar"]');
-    if (tabEntregar) {
-      tabEntregar.classList.toggle('tecnico-tab-con-pendientes', listasEntregar.length > 0);
-    }
-
-    // Aplicar filtro por tab activa
-    this.state.ordenes = this.state.tabActiva === 'entregar' ? listasEntregar : enTaller;
     this.renderLista();
   },
 
@@ -259,10 +262,10 @@ const Tecnico = {
     //   4. Resto, por fecha desc
     const userId = this.state.profile.id;
     const ords = [...this.state.ordenes].sort((a, b) => {
-      // 0. Listas para entregar arriba de todo (motorista esperando = urgencia operativa)
-      const aLista = a.estado === 'completada' && !a.entregada_en;
-      const bLista = b.estado === 'completada' && !b.entregada_en;
-      if (aLista !== bLista) return aLista ? -1 : 1;
+      // 0. Completadas al final (aún en taller esperando GPS)
+      const aComp = a.estado === 'completada';
+      const bComp = b.estado === 'completada';
+      if (aComp !== bComp) return aComp ? 1 : -1;
       // 1. Urgentes primero
       if (a.prioridad !== b.prioridad) {
         return a.prioridad === 'urgente' ? -1 : 1;
@@ -285,9 +288,6 @@ const Tecnico = {
       let mensaje, sub = '';
       if (this.state.busqueda) {
         mensaje = 'No se encontraron vehículos con ese criterio.';
-      } else if (this.state.tabActiva === 'entregar') {
-        mensaje = 'No hay vehículos listos para entregar.';
-        sub = '<p style="color: var(--text-dim); font-size: 0.85rem; margin-top: 0.5rem;">Cuando termines todos los servicios de una orden, aparecerá aquí.</p>';
       } else {
         mensaje = 'Sin vehículos en taller en este momento.';
         sub = '<p style="color: var(--text-dim); font-size: 0.85rem; margin-top: 0.5rem;">Cuando el jefe cree una orden, aparecerá aquí.</p>';
@@ -327,33 +327,30 @@ const Tecnico = {
       .slice(0, 3)
       .join(' · ');
 
+    const esCompletada = orden.estado === 'completada';
+
     let cardClass = 'vehiculo-card';
-    const listaEntregar = orden.estado === 'completada' && !orden.entregada_en;
-    if (listaEntregar) cardClass += ' card-lista-entregar';
-    if (orden.prioridad === 'urgente' && !listaEntregar) cardClass += ' card-urgente';
+    if (esCompletada) cardClass += ' card-lista-entregar';  // reutilizamos el estilo visual
+    if (orden.prioridad === 'urgente' && !esCompletada) cardClass += ' card-urgente';
     if (estadoMia) cardClass += ' card-mio';
-    // Orden trabajada por otro técnico (y no por mí) → atenuar
     if (otroEnProgreso && !estadoMia) cardClass += ' card-otro';
 
     let badgeHtml;
-    if (listaEntregar) {
-      badgeHtml = '<span class="badge-mini badge-lista-entregar">🚗 LISTA P/ ENTREGAR</span>';
+    if (esCompletada) {
+      badgeHtml = '<span class="badge-mini badge-lista-entregar">✓ COMPLETADA</span>';
     } else if (orden.prioridad === 'urgente') {
       badgeHtml = '<span class="badge-mini badge-urgente">Urgente</span>';
     } else {
       badgeHtml = '<span class="badge-mini badge-normal">Normal</span>';
     }
 
-    // Contador completados/total con colores semánticos:
-    //   verde = completados, rojo = total
-    // Se muestra siempre que la orden tenga servicios (incluso 0/N).
     const contadorHtml = total > 0
       ? `<span class="contador-completados">${completados}</span><span class="contador-sep">/</span><span class="contador-total">${total}</span>`
       : '';
 
     let statusHtml = '';
-    if (listaEntregar) {
-      statusHtml = '<div class="card-status status-lista-entregar">✓ Trabajo terminado · Toca para entregar al motorista</div>';
+    if (esCompletada) {
+      statusHtml = '<div class="card-status status-lista-entregar">✓ Trabajo terminado · Toca para agregar servicio</div>';
     } else if (estadoMia) {
       statusHtml = '<div class="card-status status-mio">▶ Tú estás trabajando aquí</div>';
     } else if (otroEnProgreso) {
@@ -363,7 +360,6 @@ const Tecnico = {
     } else if (completados < total) {
       statusHtml = `<div class="card-status status-asignado">${contadorHtml} servicios</div>`;
     } else if (total > 0) {
-      // Por si acaso: todos completados pero la orden aún no se cerró
       statusHtml = `<div class="card-status status-asignado">${contadorHtml} servicios</div>`;
     }
 
