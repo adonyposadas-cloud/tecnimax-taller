@@ -47,6 +47,7 @@ const Admin = {
     usuarios: [],
     serviciosCatalogo: [],
     alertasMtto: [],  // Alertas de mantenimiento KM (Fase 4b)
+    vehiculosSinMoverse: [],  // [{ placa, diasSinMoverse, ultimaFecha }]
 
     realtimeChannel: null,
     pollingInterval: null,
@@ -410,6 +411,7 @@ const Admin = {
         this.cargarPausas(),
         this.cargarCancelaciones(),
         this.cargarAlertasMtto(),
+        this.cargarVehiculosSinMoverse(),
       ]);
 
       this.renderKPIs();
@@ -445,7 +447,7 @@ const Admin = {
     // Y filtramos por rango para los counts del rango
     const { data, error } = await supabaseClient
       .from('ordenes')
-      .select('num_orden, placa, prioridad, estado, motivo, creada_en, cerrada_en, creada_por, entregada_en, motorista_nombre');
+      .select('num_orden, placa, prioridad, estado, motivo, creada_en, cerrada_en, creada_por');
     if (error) throw error;
     this.state.ordenes = data || [];
   },
@@ -484,6 +486,82 @@ const Admin = {
     } catch (err) {
       Utils.log('Error cargando alertas mtto (puede ser BD vieja):', err);
       this.state.alertasMtto = [];
+    }
+  },
+
+  // ===== Vehículos sin moverse (GPS) =====
+  // Consulta los últimos 30 días de gps_km y detecta placas con días consecutivos
+  // reportando menos de 2000 metros (umbral "sin moverse" del RPA).
+  async cargarVehiculosSinMoverse() {
+    try {
+      // Traer últimos 30 días de GPS (máx ~4000 registros = ~130 placas × 30 días)
+      const hace30 = new Date();
+      hace30.setDate(hace30.getDate() - 30);
+      const fechaDesde = hace30.toISOString().slice(0, 10);
+
+      const { data, error } = await supabaseClient
+        .from('gps_km')
+        .select('placa, fecha, metros_registrado')
+        .gte('fecha', fechaDesde)
+        .order('fecha', { ascending: false });
+
+      if (error) {
+        Utils.log('cargarVehiculosSinMoverse: tabla no disponible:', error.message);
+        this.state.vehiculosSinMoverse = [];
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        this.state.vehiculosSinMoverse = [];
+        return;
+      }
+
+      // Encontrar la fecha más reciente con datos (= última carga GPS)
+      const fechasUnicas = [...new Set(data.map(r => r.fecha))].sort().reverse();
+      const ultimaFechaGps = fechasUnicas[0];
+
+      // Agrupar por placa, ordenar fechas desc
+      const porPlaca = new Map();
+      data.forEach(r => {
+        if (!porPlaca.has(r.placa)) porPlaca.set(r.placa, []);
+        porPlaca.get(r.placa).push({ fecha: r.fecha, metros: r.metros_registrado });
+      });
+
+      const UMBRAL = 2000; // metros — debajo de esto = "sin moverse"
+      const resultado = [];
+
+      porPlaca.forEach((registros, placa) => {
+        // Ordenar por fecha desc
+        registros.sort((a, b) => b.fecha.localeCompare(a.fecha));
+
+        // Contar días consecutivos sin moverse desde la fecha más reciente
+        let diasConsecutivos = 0;
+        for (const r of registros) {
+          if (r.metros < UMBRAL) {
+            diasConsecutivos++;
+          } else {
+            break; // rompió la racha
+          }
+        }
+
+        if (diasConsecutivos > 0) {
+          resultado.push({
+            placa,
+            diasSinMoverse: diasConsecutivos,
+            ultimaFecha: registros[0].fecha,
+            ultimosMetros: registros[0].metros,
+          });
+        }
+      });
+
+      // Ordenar: más días sin moverse primero
+      resultado.sort((a, b) => b.diasSinMoverse - a.diasSinMoverse);
+
+      this.state.vehiculosSinMoverse = resultado;
+      Utils.log(`GPS sin moverse: ${resultado.length} vehículos (de ${porPlaca.size} total). Última carga: ${ultimaFechaGps}`);
+    } catch (err) {
+      Utils.log('Error cargando vehículos sin moverse:', err);
+      this.state.vehiculosSinMoverse = [];
     }
   },
 
@@ -1007,14 +1085,11 @@ const Admin = {
     document.getElementById('kpi-completados').textContent = completados;
     document.getElementById('kpi-tiempo-promedio').textContent = tiempoProm;
 
-    // KPI: Pendiente entrega = órdenes completadas que aún no han sido recogidas
-    // por un motorista. Es global (no del rango) porque mientras la unidad esté
-    // en el taller esperando, debe verse aquí independientemente del filtro.
-    const pendientesEntrega = this.state.ordenes.filter(
-      o => o.estado === 'completada' && !o.entregada_en
-    ).length;
-    const elPend = document.getElementById('kpi-pendiente-entrega');
-    if (elPend) elPend.textContent = pendientesEntrega;
+    // KPI: Sin moverse = vehículos con datos GPS reportando < 2000 metros
+    // en los días más recientes consecutivos. Cargado desde gps_km.
+    const sinMoverse = this.state.vehiculosSinMoverse.length;
+    const elSinMov = document.getElementById('kpi-sin-moverse');
+    if (elSinMov) elSinMov.textContent = sinMoverse;
   },
 
   // ==================== KPI MODAL DETALLE ====================
@@ -1025,7 +1100,7 @@ const Admin = {
       'pausados': 'Servicios pausados',
       'ingresos': 'Órdenes ingresadas',
       'completados': 'Órdenes completadas',
-      'pendiente-entrega': 'Pendientes de entrega al motorista',
+      'sin-moverse': 'Vehículos sin moverse (GPS)',
       'alertas-mtto': 'Alertas de mantenimiento',
     };
 
@@ -1220,36 +1295,35 @@ const Admin = {
             `;
           }).join('');
       }
-    } else if (tipo === 'pendiente-entrega') {
-      // Lista las órdenes completadas que aún no han sido recogidas por motorista.
-      // Se ordena por la más antigua primero (las que llevan más esperando arriba).
-      const ords = this.state.ordenes.filter(
-        o => o.estado === 'completada' && !o.entregada_en
-      );
-      if (ords.length === 0) {
-        html = '<div class="empty-state"><p>Sin unidades pendientes de entrega. ✓</p></div>';
+    } else if (tipo === 'sin-moverse') {
+      // Vehículos con días consecutivos sin moverse según GPS
+      const vehs = this.state.vehiculosSinMoverse;
+      if (vehs.length === 0) {
+        html = '<div class="empty-state"><p>Todos los vehículos con movimiento registrado. ✓</p></div>';
       } else {
-        html = ords
-          .sort((a, b) => new Date(a.cerrada_en || 0) - new Date(b.cerrada_en || 0))
-          .map(o => {
-            const fecha = this.formatearFecha(o.cerrada_en);
-            // Calcular cuántas horas lleva esperando
-            const horasEspera = o.cerrada_en
-              ? Math.max(0, Math.round((Date.now() - new Date(o.cerrada_en)) / 3600000))
-              : 0;
-            const espera = horasEspera < 1 ? 'Recién terminada'
-                         : horasEspera === 1 ? 'Esperando 1 hora'
-                         : horasEspera < 24 ? `Esperando ${horasEspera} horas`
-                         : `Esperando ${Math.floor(horasEspera / 24)} día${Math.floor(horasEspera / 24) !== 1 ? 's' : ''}`;
-            return `
-              <div class="kpi-item" data-orden="${o.num_orden}">
-                <div class="kpi-item-info">
-                  <div class="kpi-item-titulo">${Utils.escapeHtml(o.placa)} · ${o.num_orden}</div>
-                  <div class="kpi-item-meta">Lista ${fecha} · ${espera}</div>
-                </div>
+        html = vehs.map(v => {
+          const diasTxt = v.diasSinMoverse === 1
+            ? '1 día sin moverse'
+            : `${v.diasSinMoverse} días sin moverse`;
+          const fechaTxt = this.formatearFecha(v.ultimaFecha + 'T12:00:00');
+          const kmTxt = v.ultimosMetros < 1000
+            ? `${v.ultimosMetros} m`
+            : `${(v.ultimosMetros / 1000).toFixed(1)} km`;
+          // Color según gravedad
+          const badge = v.diasSinMoverse >= 7
+            ? '<span style="color:#dc3545;font-weight:600;">⛔</span>'
+            : v.diasSinMoverse >= 3
+              ? '<span style="color:#ffc107;font-weight:600;">⚠️</span>'
+              : '<span style="color:var(--text-muted);">🔸</span>';
+          return `
+            <div class="kpi-item">
+              <div class="kpi-item-info">
+                <div class="kpi-item-titulo">${badge} ${Utils.escapeHtml(v.placa)}</div>
+                <div class="kpi-item-meta">${diasTxt} · Último reporte: ${fechaTxt} (${kmTxt})</div>
               </div>
-            `;
-          }).join('');
+            </div>
+          `;
+        }).join('');
       }
     }
 
