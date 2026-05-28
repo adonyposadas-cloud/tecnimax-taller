@@ -290,7 +290,7 @@ Hora: ${this.fmtHora()}`;
         .from('ordenes')
         .select(`
           num_orden, placa, prioridad, estado, motivo, problema, km_ingreso,
-          creada_en, cerrada_en, creada_por, entregada_en, motorista_nombre,
+          creada_en, cerrada_en, creada_por,
           vehiculos ( marca, modelo, anio, km_gps_actual ),
           servicios_orden ( id, servicio_id, estado, tecnico_id, hora_inicio, hora_fin,
                             tiempo_real_min, tiempo_asignado_min, sospechoso,
@@ -1152,14 +1152,14 @@ Hora: ${this.fmtHora()}`;
 
     const o = this.state.orden;
     const ordenAbierta = o && (o.estado === 'abierta' || o.estado === 'en_progreso');
-    // Orden completada pero aún sin entregar: permite "+ Servicio nuevo"
+    // Orden completada: permite "+ Servicio nuevo"
     // (al agregar se reactivará automáticamente a en_progreso)
-    const ordenCompletadaSinEntregar = o && o.estado === 'completada' && !o.entregada_en;
-    const puedeAgregarCatalogo = ordenAbierta || ordenCompletadaSinEntregar;
+    const ordenCompletada = o && o.estado === 'completada';
+    const puedeAgregarCatalogo = ordenAbierta || ordenCompletada;
 
     // Reglas:
     //  - "+ Agregar a este trabajo": tomar pendientes (solo si hay pendientes en orden activa)
-    //  - "+ Servicio nuevo": cualquier técnico, en orden activa O completada-sin-entregar
+    //  - "+ Servicio nuevo": cualquier técnico, en orden activa O completada
     //    (al agregar, se reactiva la orden automáticamente)
     btnAdd.hidden = !(ordenAbierta && hayPendientes);
     btnAddCatalogo.hidden = !puedeAgregarCatalogo;
@@ -1172,7 +1172,7 @@ Hora: ${this.fmtHora()}`;
       txt = `${enCurso.length} servicio${enCurso.length !== 1 ? 's' : ''} en curso`;
     } else if (enPausa.length > 0) {
       txt = `${enPausa.length} servicio${enPausa.length !== 1 ? 's' : ''} pausado${enPausa.length !== 1 ? 's' : ''}`;
-    } else if (ordenCompletadaSinEntregar) {
+    } else if (ordenCompletada) {
       txt = 'Trabajo terminado · Si encontraste algo más, agregalo';
     } else if (ordenAbierta) {
       txt = 'Sin trabajo asignado en esta orden';
@@ -1189,68 +1189,41 @@ Hora: ${this.fmtHora()}`;
     const btnPrio = document.getElementById('btn-cambiar-prioridad');
     const btnAgregarSrv = document.getElementById('btn-agregar-servicio-jefe');
     const btnCancelar = document.getElementById('btn-cancelar-orden');
-    const btnEntregar = document.getElementById('btn-marcar-entregada');
     const btnReactivar = document.getElementById('btn-reactivar-orden');
-    const infoEntrega = document.getElementById('info-entrega');
-    const infoEntregaDet = document.getElementById('info-entrega-detalle');
 
     const o = this.state.orden;
     if (!o) {
       panel.hidden = true;
-      if (infoEntrega) infoEntrega.hidden = true;
       return;
     }
 
-    // 1) ¿Mostrar info de "ya entregada"?
-    if (infoEntrega) {
-      if (o.entregada_en) {
-        const fecha = this.formatearFecha
-          ? this.formatearFecha(o.entregada_en)
-          : new Date(o.entregada_en).toLocaleString('es-HN');
-        const motorista = o.motorista_nombre
-          ? Utils.escapeHtml(o.motorista_nombre)
-          : '<em>Motorista sin nombre registrado</em>';
-        infoEntregaDet.innerHTML = `Recogida por <strong>${motorista}</strong><br><small style="color: var(--text-muted);">${fecha}</small>`;
-        infoEntrega.hidden = false;
-      } else {
-        infoEntrega.hidden = true;
-      }
-    }
-
-    // 2) ¿Mostrar el panel de acciones?
+    // ¿Mostrar el panel de acciones?
     // - Si la orden está cancelada: nunca
-    // - Si la orden está completada y NO entregada: SÍ (cualquier rol)
-    //   → botones: Marcar entregada + Reactivar orden
-    // - Si la orden está completada y YA entregada: no
+    // - Si la orden está completada: SÍ (cualquier rol) → botón Reactivar
     // - Si la orden está abierta o en_progreso: solo jefe/admin
-    const completadaPendienteEntrega = o.estado === 'completada' && !o.entregada_en;
+    const completada = o.estado === 'completada';
     const editableJefeAdmin = (o.estado === 'abierta' || o.estado === 'en_progreso')
                               && (rol === 'jefe_pista' || rol === 'admin');
 
-    if (!completadaPendienteEntrega && !editableJefeAdmin) {
+    if (!completada && !editableJefeAdmin) {
       panel.hidden = true;
       return;
     }
 
     panel.hidden = false;
 
-    // 3) Configurar visibilidad de cada botón según el escenario
-    if (completadaPendienteEntrega) {
-      // Botones para una orden lista pero sin recoger:
-      // - Marcar entregada (cierra el ciclo)
-      // - Reactivar orden (re-abre por si hay que agregar trabajo)
-      // Ambos accesibles a CUALQUIER rol.
+    // Configurar visibilidad de cada botón según el escenario
+    if (completada) {
+      // Orden completada: solo reactivar (re-abre por si hay que agregar trabajo)
       if (btnPrio) btnPrio.hidden = true;
       if (btnAgregarSrv) btnAgregarSrv.hidden = true;
       if (btnCancelar) btnCancelar.hidden = true;
-      if (btnEntregar) btnEntregar.hidden = false;
       if (btnReactivar) btnReactivar.hidden = false;
     } else {
       // Modo edición jefe/admin (orden en curso)
       if (btnPrio) btnPrio.hidden = false;
       if (btnAgregarSrv) btnAgregarSrv.hidden = (o.estado !== 'abierta');
       if (btnCancelar) btnCancelar.hidden = false;
-      if (btnEntregar) btnEntregar.hidden = true;
       if (btnReactivar) btnReactivar.hidden = true;
     }
   },
@@ -2198,67 +2171,7 @@ Hora: ${this.fmtHora()}`;
     }
   },
 
-  // ----- MARCAR ENTREGADA AL MOTORISTA -----
-  abrirModalEntregar() {
-    const input = document.getElementById('entregar-motorista');
-    if (input) input.value = '';
-    const errEl = document.getElementById('entregar-error');
-    if (errEl) errEl.hidden = true;
-    document.getElementById('modal-entregar').hidden = false;
-    // Foco automático al input para escribir el nombre rápido
-    setTimeout(() => { if (input) input.focus(); }, 50);
-  },
-
-  async confirmarEntregar() {
-    const nombreInput = document.getElementById('entregar-motorista');
-    const nombre = (nombreInput?.value || '').trim();
-    if (!nombre) {
-      this.errorEnModal('entregar-error', 'Debes ingresar el nombre del motorista.');
-      return;
-    }
-    if (nombre.length < 3) {
-      this.errorEnModal('entregar-error', 'El nombre es demasiado corto.');
-      return;
-    }
-
-    const btn = document.getElementById('btn-confirmar-entregar');
-    btn.disabled = true;
-    btn.textContent = 'Guardando...';
-
-    try {
-      // Validación de seguridad: solo se entregan órdenes ya completadas y no entregadas
-      const o = this.state.orden;
-      if (!o || o.estado !== 'completada') {
-        this.errorEnModal('entregar-error', 'La orden no está completada.');
-        return;
-      }
-      if (o.entregada_en) {
-        this.errorEnModal('entregar-error', 'Esta orden ya fue marcada como entregada.');
-        return;
-      }
-
-      const ahora = new Date().toISOString();
-      const { error } = await supabaseClient
-        .from('ordenes')
-        .update({
-          entregada_en: ahora,
-          motorista_nombre: nombre,
-        })
-        .eq('num_orden', this.state.numOrden);
-      if (error) throw error;
-
-      this.cerrarModales();
-      await this.cargarOrden();
-    } catch (err) {
-      Utils.log('Error marcando entrega:', err);
-      this.errorEnModal('entregar-error', err.message || 'No se pudo registrar la entrega.');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Confirmar entrega';
-    }
-  },
-
-  // ----- REACTIVAR ORDEN COMPLETADA (no entregada) -----
+  // ----- REACTIVAR ORDEN COMPLETADA -----
   abrirModalReactivar() {
     const input = document.getElementById('reactivar-motivo');
     if (input) input.value = '';
@@ -2285,10 +2198,6 @@ Hora: ${this.fmtHora()}`;
       }
       if (o.estado !== 'completada') {
         this.errorEnModal('reactivar-error', 'Solo se pueden reactivar órdenes completadas.');
-        return;
-      }
-      if (o.entregada_en) {
-        this.errorEnModal('reactivar-error', 'No se puede reactivar: el motorista ya recogió la unidad. Crea una orden nueva.');
         return;
       }
 
@@ -2743,21 +2652,6 @@ Hora: ${this.fmtHora()}`;
     const btnAgregarSrv = document.getElementById('btn-agregar-servicio-jefe');
     if (btnAgregarSrv) btnAgregarSrv.addEventListener('click', () => this.abrirModalAgregarJefe());
 
-    // ----- Acción Marcar entregada (cualquier rol) -----
-    const btnEntregar = document.getElementById('btn-marcar-entregada');
-    if (btnEntregar) btnEntregar.addEventListener('click', () => this.abrirModalEntregar());
-
-    // Modal Entregar
-    const btnCerrarEnt = document.getElementById('btn-cerrar-entregar');
-    if (btnCerrarEnt) btnCerrarEnt.addEventListener('click', () => this.cerrarModales());
-    const btnConfEnt = document.getElementById('btn-confirmar-entregar');
-    if (btnConfEnt) btnConfEnt.addEventListener('click', () => this.confirmarEntregar());
-    // Enter en el input dispara confirmar
-    const inputEnt = document.getElementById('entregar-motorista');
-    if (inputEnt) inputEnt.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); this.confirmarEntregar(); }
-    });
-
     // ----- Acción Reactivar orden (cualquier rol) -----
     const btnReact = document.getElementById('btn-reactivar-orden');
     if (btnReact) btnReact.addEventListener('click', () => this.abrirModalReactivar());
@@ -2861,7 +2755,7 @@ Hora: ${this.fmtHora()}`;
   cerrarModales() {
     ['modal-empezar', 'modal-pausar', 'modal-terminar', 'modal-agregar',
      'modal-prioridad', 'modal-cancelar-orden', 'modal-reasignar', 'modal-agregar-jefe',
-     'modal-entregar', 'modal-reactivar'].forEach(id => {
+     'modal-reactivar'].forEach(id => {
       const m = document.getElementById(id);
       if (m) m.hidden = true;
     });
