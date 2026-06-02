@@ -443,21 +443,53 @@ const Admin = {
   },
 
   async cargarOrdenes() {
-    // Cargamos todas las órdenes (para KPIs en taller que son live)
-    // Y filtramos por rango para los counts del rango
-    const { data, error } = await supabaseClient
+    // FIX tope 1000 filas de Supabase: NO traemos todo el histórico de órdenes.
+    // El tablero solo necesita: (1) las activas siempre, y (2) las cerradas del rango.
+    const cols = 'num_orden, placa, prioridad, estado, motivo, creada_en, cerrada_en, creada_por';
+
+    // 1. Activas: SIEMPRE todas (abierta + en_progreso). Son pocas y se usan para
+    //    "EN TALLER", para resolver la placa de los servicios activos, etc.
+    const { data: activas, error: e1 } = await supabaseClient
       .from('ordenes')
-      .select('num_orden, placa, prioridad, estado, motivo, creada_en, cerrada_en, creada_por');
-    if (error) throw error;
-    this.state.ordenes = data || [];
+      .select(cols)
+      .in('estado', ['abierta', 'en_progreso']);
+    if (e1) throw e1;
+
+    // 2. Cerradas (completadas/canceladas) dentro del rango: para los KPIs de
+    //    ingresos/completados y la productividad. Fuera del rango no se usan.
+    const { data: cerradas, error: e2 } = await supabaseClient
+      .from('ordenes')
+      .select(cols)
+      .in('estado', ['completada', 'cancelada'])
+      .gte('cerrada_en', this.state.fechaDesde);
+    if (e2) throw e2;
+
+    this.state.ordenes = [...(activas || []), ...(cerradas || [])];
   },
 
   async cargarServicios() {
-    const { data, error } = await supabaseClient
+    // FIX tope 1000 filas de Supabase: NO traemos los 900+ completados históricos,
+    // que se comían el cupo y dejaban fuera los servicios en_progreso recién creados.
+    const cols = 'id, num_orden, servicio_id, estado, tecnico_id, hora_inicio, hora_fin, tiempo_real_min, tiempo_asignado_min, sospechoso';
+
+    // 1. Activos: SIEMPRE todos. Son pocos y alimentan el tablero en vivo
+    //    (EN PROCESO, PAUSADOS, estado de técnicos). Nunca se truncan.
+    const { data: activos, error: e1 } = await supabaseClient
       .from('servicios_orden')
-      .select('id, num_orden, servicio_id, estado, tecnico_id, hora_inicio, hora_fin, tiempo_real_min, tiempo_asignado_min, sospechoso');
-    if (error) throw error;
-    this.state.servicios = data || [];
+      .select(cols)
+      .in('estado', ['pendiente', 'en_progreso', 'pausado']);
+    if (e1) throw e1;
+
+    // 2. Completados: solo dentro del rango (tiempo prom., productividad,
+    //    sospechosos). Se filtra por hora_fin, el mismo campo que usa enRango().
+    const { data: completados, error: e2 } = await supabaseClient
+      .from('servicios_orden')
+      .select(cols)
+      .eq('estado', 'completado')
+      .gte('hora_fin', this.state.fechaDesde);
+    if (e2) throw e2;
+
+    this.state.servicios = [...(activos || []), ...(completados || [])];
   },
 
   async cargarPausas() {
