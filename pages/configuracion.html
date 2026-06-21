@@ -209,7 +209,13 @@
           <span class="config-toggle" id="toggle-usuarios">▶</span>
         </div>
         <div id="usuarios-body" class="config-body" hidden>
-          <p class="config-hint">Lista de usuarios del taller. Solo el admin puede resetear el PIN de otros usuarios.</p>
+          <p class="config-hint">Lista de usuarios del taller. Solo el admin puede crear usuarios y resetear el PIN de otros.</p>
+
+          <!-- Toolbar: crear usuario -->
+          <div class="config-toolbar">
+            <button type="button" id="btn-crear-usuario" class="btn-primary-action">+ Crear usuario</button>
+          </div>
+
           <div id="usuarios-list" class="config-list">
             <p class="empty-state">Cargando usuarios...</p>
           </div>
@@ -589,6 +595,61 @@
       <footer class="modal-footer">
         <button type="button" class="btn-secondary" id="btn-cancelar-reset-pin">Cancelar</button>
         <button type="button" class="btn-primary-action" id="btn-confirmar-reset-pin">Cambiar PIN</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============= MODAL: CREAR USUARIO ============= -->
+  <div id="modal-crear-usuario" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-small">
+      <header class="modal-header">
+        <h2 class="modal-title">➕ Crear usuario</h2>
+      </header>
+      <div class="modal-body">
+        <div class="field">
+          <label for="crear-usuario-nombre">Nombre completo</label>
+          <input type="text" id="crear-usuario-nombre" class="field-input"
+                 autocomplete="off" placeholder="Ej: Juan Pérez" />
+        </div>
+        <div class="field">
+          <label for="crear-usuario-codigo">Código (1 letra + 5 dígitos)</label>
+          <input type="text" id="crear-usuario-codigo" class="field-input"
+                 autocomplete="off" maxlength="6" placeholder="Ej: A03404" />
+          <span class="field-help">Con este código inicia sesión. Se convierte en su correo interno automáticamente.</span>
+        </div>
+        <div class="field">
+          <label for="crear-usuario-rol">Rol</label>
+          <select id="crear-usuario-rol" class="field-input">
+            <option value="tecnico">Técnico</option>
+            <option value="jefe_pista">Jefe</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+        <div class="field" id="crear-usuario-precio-field">
+          <label for="crear-usuario-precio">Precio por hora (L.)</label>
+          <input type="number" id="crear-usuario-precio" class="field-input"
+                 min="0" step="0.01" autocomplete="off" placeholder="0.00" />
+          <span class="field-help">Opcional. Solo aplica para técnicos.</span>
+        </div>
+        <div class="field">
+          <label for="crear-usuario-pin">PIN inicial (6 dígitos)</label>
+          <input type="text" id="crear-usuario-pin" class="field-input"
+                 inputmode="numeric" pattern="[0-9]*" maxlength="6"
+                 autocomplete="off" placeholder="••••••" />
+          <span class="field-help">Solo números. Decíselo al colaborador en privado.</span>
+        </div>
+        <div class="field">
+          <label for="crear-usuario-pin-confirm">Confirmar PIN</label>
+          <input type="text" id="crear-usuario-pin-confirm" class="field-input"
+                 inputmode="numeric" pattern="[0-9]*" maxlength="6"
+                 autocomplete="off" placeholder="••••••" />
+        </div>
+        <div id="crear-usuario-error" class="error-msg" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancelar-crear-usuario">Cancelar</button>
+        <button type="button" class="btn-primary-action" id="btn-confirmar-crear-usuario">Crear usuario</button>
       </footer>
     </div>
   </div>
