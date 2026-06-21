@@ -574,7 +574,7 @@ const Configuracion = {
     if (btnConfirmarReset) btnConfirmarReset.addEventListener('click', () => this.confirmarResetPin());
 
     // Filtrar inputs de PIN: solo dígitos
-    ['reset-pin-input', 'reset-pin-confirm'].forEach(id => {
+    ['reset-pin-input', 'reset-pin-confirm', 'crear-usuario-pin', 'crear-usuario-pin-confirm'].forEach(id => {
       const inp = document.getElementById(id);
       if (inp) {
         inp.addEventListener('input', (e) => {
@@ -582,6 +582,32 @@ const Configuracion = {
         });
       }
     });
+
+    // ============= MÓDULO CREAR USUARIO =============
+    const btnCrearUsuario = document.getElementById('btn-crear-usuario');
+    if (btnCrearUsuario) btnCrearUsuario.addEventListener('click', () => this.abrirModalCrearUsuario());
+
+    const btnCancelarCrear = document.getElementById('btn-cancelar-crear-usuario');
+    if (btnCancelarCrear) btnCancelarCrear.addEventListener('click', () => this.cerrarModales());
+
+    const btnConfirmarCrear = document.getElementById('btn-confirmar-crear-usuario');
+    if (btnConfirmarCrear) btnConfirmarCrear.addEventListener('click', () => this.confirmarCrearUsuario());
+
+    // Código en mayúsculas mientras escribe
+    const inputCodigoNuevo = document.getElementById('crear-usuario-codigo');
+    if (inputCodigoNuevo) {
+      inputCodigoNuevo.addEventListener('input', (e) => {
+        const start = e.target.selectionStart;
+        e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+        e.target.setSelectionRange(start, start);
+      });
+    }
+
+    // Mostrar/ocultar campo precio según el rol
+    const selRolNuevo = document.getElementById('crear-usuario-rol');
+    if (selRolNuevo) {
+      selRolNuevo.addEventListener('change', () => this._togglePrecioCrearUsuario());
+    }
 
     // ============= MÓDULO IMPORTAR KM (GPS) =============
     const btnSeleccionar = document.getElementById('btn-kmgps-seleccionar');
@@ -626,6 +652,8 @@ const Configuracion = {
     document.getElementById('modal-grupo').hidden = true;
     const modalReset = document.getElementById('modal-resetear-pin');
     if (modalReset) modalReset.hidden = true;
+    const modalCrear = document.getElementById('modal-crear-usuario');
+    if (modalCrear) modalCrear.hidden = true;
     this.state.editando = null;
     this.state.resetPinUsuario = null;
   },
@@ -824,6 +852,109 @@ const Configuracion = {
         btnConfirm.disabled = false;
         btnConfirm.textContent = 'Cambiar PIN';
       }
+    }
+  },
+
+  // ----- Crear usuario: abrir modal -----
+  abrirModalCrearUsuario() {
+    const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    setVal('crear-usuario-nombre', '');
+    setVal('crear-usuario-codigo', '');
+    setVal('crear-usuario-pin', '');
+    setVal('crear-usuario-pin-confirm', '');
+    setVal('crear-usuario-precio', '');
+    const selRol = document.getElementById('crear-usuario-rol');
+    if (selRol) selRol.value = 'tecnico';
+
+    const errEl = document.getElementById('crear-usuario-error');
+    if (errEl) errEl.hidden = true;
+
+    this._togglePrecioCrearUsuario();
+
+    const modal = document.getElementById('modal-crear-usuario');
+    if (modal) modal.hidden = false;
+    setTimeout(() => {
+      const n = document.getElementById('crear-usuario-nombre');
+      if (n) n.focus();
+    }, 100);
+  },
+
+  // ----- Crear usuario: mostrar/ocultar campo precio según rol -----
+  _togglePrecioCrearUsuario() {
+    const selRol = document.getElementById('crear-usuario-rol');
+    const precioField = document.getElementById('crear-usuario-precio-field');
+    if (!selRol || !precioField) return;
+    precioField.style.display = (selRol.value === 'tecnico') ? '' : 'none';
+  },
+
+  // ----- Crear usuario: validar y llamar RPC -----
+  async confirmarCrearUsuario() {
+    const errEl = document.getElementById('crear-usuario-error');
+    const btn = document.getElementById('btn-confirmar-crear-usuario');
+
+    const mostrarError = (msg) => {
+      if (errEl) { errEl.textContent = msg; errEl.hidden = false; }
+    };
+
+    const nombre = (document.getElementById('crear-usuario-nombre').value || '').trim();
+    const codigo = (document.getElementById('crear-usuario-codigo').value || '').trim().toUpperCase();
+    const rol = document.getElementById('crear-usuario-rol').value;
+    const pin = (document.getElementById('crear-usuario-pin').value || '').trim();
+    const pinConfirm = (document.getElementById('crear-usuario-pin-confirm').value || '').trim();
+    const precioRaw = (document.getElementById('crear-usuario-precio').value || '').trim();
+
+    // Validaciones cliente
+    if (!nombre) return mostrarError('El nombre es obligatorio.');
+    if (!/^[A-Z][0-9]{5}$/.test(codigo)) {
+      return mostrarError('El código debe ser una letra seguida de 5 dígitos (ej: A03404).');
+    }
+    if (!['tecnico', 'jefe_pista', 'admin'].includes(rol)) {
+      return mostrarError('Selecciona un rol válido.');
+    }
+    if (pin.length !== 6 || !/^[0-9]{6}$/.test(pin)) {
+      return mostrarError('El PIN debe ser exactamente 6 dígitos numéricos.');
+    }
+    if (pin !== pinConfirm) {
+      return mostrarError('Los PINs no coinciden.');
+    }
+
+    let precio = null;
+    if (rol === 'tecnico' && precioRaw !== '') {
+      precio = parseFloat(precioRaw);
+      if (isNaN(precio) || precio < 0) {
+        return mostrarError('Precio por hora inválido.');
+      }
+    }
+
+    // Loading state
+    if (errEl) errEl.hidden = true;
+    if (btn) { btn.disabled = true; btn.textContent = 'Creando...'; }
+
+    try {
+      const { data, error } = await supabaseClient.rpc('admin_crear_usuario', {
+        p_nombre: nombre,
+        p_codigo: codigo,
+        p_rol: rol,
+        p_pin: pin,
+        p_precio_hora: precio,
+      });
+
+      if (error) throw error;
+      if (data && data.ok === false) {
+        throw new Error(data.mensaje || 'No se pudo crear el usuario');
+      }
+
+      this.cerrarModales();
+      alert(`✅ Usuario creado: ${nombre} (${codigo}).\nDecíle su PIN en privado.`);
+
+      // Refrescar lista de usuarios
+      await this.cargarUsuarios();
+      this.renderUsuarios();
+    } catch (err) {
+      Utils.log('Error creando usuario:', err);
+      mostrarError('Error: ' + (err.message || 'No se pudo crear el usuario'));
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Crear usuario'; }
     }
   },
 
